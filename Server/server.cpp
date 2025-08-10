@@ -21,8 +21,8 @@ int main() {
     address.sin_family = AF_INET;
     address.sin_port = htons(PORT);
 
-    if(inet_pton(AF_INET, "127.0.0.1", &address.sin_addr)){
-        printf("Dirección IP válida\n");
+    if(inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) <= 0){
+        printf("Dirección IP no válida\n");
         return -1;
     }
 
@@ -30,9 +30,10 @@ int main() {
         perror("Error al hacer bind");
         return -1;
     }
+    int addrlen = sizeof(address);
 
     listen(server_fd, 3);
-    cliente = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&address);
+    cliente = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
 
     if(cliente < 0) {
         printf("Error al aceptar conexión\n");

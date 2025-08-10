@@ -36,9 +36,11 @@ int main() {
         return -1;
     }
 
-    while (archivo.read(buffer, sizeof(buffer))) {
+    while (!archivo.eof()) {
+        archivo.read(buffer, sizeof(buffer));
         send(sockfd, buffer, archivo.gcount(), 0);
     }
+    
 
     archivo.close();
     close(sockfd);
