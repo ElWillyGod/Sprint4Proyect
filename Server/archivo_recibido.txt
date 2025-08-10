@@ -1,2 +1,0 @@
-archivo_a_enviar.txt
-esto es texto de prueba.
