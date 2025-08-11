@@ -11,3 +11,75 @@ bool recvAll(int socket, void *buffer, size_t length) {
     }
     return true;
 }
+
+int recvFile(int server_fd) {
+    char buffer[BUFFER_SIZE];
+
+
+    size_t filename_length;
+    if (!recvAll(server_fd, &filename_length, sizeof(filename_length))) {
+        printf("Error al recibir longitud del nombre del archivo\n");
+        close(server_fd);
+        close(server_fd);
+        return -1;
+    }
+
+    filename_length = ntohl(filename_length);
+
+    // nombre del archivo
+
+    std::string filename(filename_length, '\0');
+    if (!recvAll(server_fd, &filename[0], filename_length)) {
+        printf("Error al recibir nombre del archivo\n");
+        close(server_fd);
+        close(server_fd);
+        return -1;
+    }
+
+    // tamanio del archivo
+
+    size_t file_size;
+    if (!recvAll(server_fd, &file_size, sizeof(file_size))) {
+        printf("Error al recibir tamaño del archivo\n");
+        close(server_fd);
+        close(server_fd);
+        return -1;
+    }
+
+    file_size = ntohl(file_size);
+
+    // crear archivo
+
+    std::ofstream archivo(filename, std::ios::binary);
+    if (!archivo) {
+        printf("Error al crear archivo\n");
+        close(server_fd);
+        close(server_fd);
+        return -1;
+    }
+
+    // recibir contenido del archivo
+
+    size_t bytes_received = 0;
+    while (bytes_received < file_size) {
+        size_t bytes_to_receive = std::min(sizeof(buffer), file_size - bytes_received);
+        ssize_t result = recv(server_fd, buffer, bytes_to_receive, 0);
+
+        if (result < 0) {
+            printf("Error al recibir contenido del archivo\n");
+            archivo.close();
+            close(server_fd);
+            close(server_fd);
+            return -1;
+        }
+        
+        archivo.write(buffer, result);
+        bytes_received += result;
+    }
+
+    printf("se supone que anda bien\n");
+
+    archivo.close();
+
+    return 0;
+}

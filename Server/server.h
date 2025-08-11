@@ -11,6 +11,15 @@
 #define PORT 9110
 #define BUFFER_SIZE 1024
 
+/////////////////////////////////////////////////////
+int server_tcp();
+
+/////////////////////////////////////////////////////
+int server_udp();
+
+
 bool recvAll(int socket, void *buffer, size_t length);
+
+int recvFile(int server_fd);
 
 #endif // SERVER_H

@@ -11,3 +11,6 @@ Adicionalmente, el sistema incorporará un message broker personalizado que impl
 La implementación debe realizarse utilizando sockets TCP y UDP de manera directa, sin emplear bibliotecas de alto nivel para HTTP, REST, WebSockets o frameworks de aplicación. Todo el parsing de protocolos, manejo de conexiones concurrentes, y lógica de red debe implementarse manualmente. El motor adaptativo requerirá algoritmos propios para la medición de condiciones de red, toma de decisiones basada en métricas, y cambio dinámico de protocolos durante las transferencias activas.
 
 El proyecto debe demostrar comprensión profunda de los protocolos TCP/UDP, implementación práctica de SSH y port forwarding, desarrollo de sistemas publish-subscribe, y optimización de rendimiento de red mediante adaptación inteligente de protocolos de comunicación.
+
+
+Lo primero ser un servidor que acepte conexiones TCP y UDP
