@@ -20,21 +20,6 @@ int server_udp(){
         return -1;
     }
 
-
-    // Escuchar y esperar conexion
-    /*
-    listen(server_fd, 3);
-    cliente = accept(server_fd, (struct sockaddr *)&address, &addrlen);
-
-    if(cliente < 0) {
-        printf("Error al aceptar conexión\n");
-        return -1;
-    }
-    */
-    // de aca todo se complica
-
-    // longitud del nombre del archivo
-
     if(recvFile(server_fd) < 0) {
         printf("Error al recibir archivo\n");
         close(server_fd);

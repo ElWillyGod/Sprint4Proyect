@@ -1,5 +1,5 @@
 #include "server.h"
 
 int main() {
-    return server_tcp();
+    return server_udp();
 }

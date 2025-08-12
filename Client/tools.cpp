@@ -1,9 +1,5 @@
 #include "client.h"
 
-
-bool sendAll(int socket, void *buffer, size_t length) {
-    size_t total_sent = 0;
-    int socket_type;
     /*
     socklen_t optlen = sizeof(socket_type);
     getsockopt(socket, SOL_SOCKET, SO_TYPE, &socket_type, &optlen);
@@ -25,6 +21,11 @@ bool sendAll(int socket, void *buffer, size_t length) {
     }
     return true;
     */
+
+/// tener en cuenta el uso de getsockopt para determinar el tipo de socket, getpeername y setsockopt
+bool sendAll(int socket, void *buffer, size_t length) {
+    size_t total_sent = 0;
+    int socket_type;
 
     while (total_sent < length) {
         ssize_t bytes_sent = send(socket, (char *)buffer + total_sent, length - total_sent, 0);
