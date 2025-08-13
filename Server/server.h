@@ -19,6 +19,17 @@
 #define MSG_RESUME_TRANSFER 3
 #define MSG_PROTOCOL_READY 4
 
+#define MAGIC_CONTROL 0xDEADBEEF
+#define MAGIC_DATA 0xFEEDFACE
+#define MSG_CONTROL 1
+#define MSG_DATA 2
+
+typedef struct {
+    uint32_t magic;      // MAGIC_CONTROL o MAGIC_DATA
+    uint32_t type;       // MSG_CONTROL o MSG_DATA
+    uint32_t length;     // tamaño del payload
+} MessageHeader;
+
 struct TransferState {
     std::string filename;
     size_t total_size;
@@ -44,7 +55,6 @@ int setup_tcp_server();
 int setup_udp_server();
 int send_control_message(int socket, int msg_type, size_t resume_pos);
 int receive_control_message(int socket, ControlMessage* msg);
-bool is_control_message(int socket);
 
 bool recvAll(int socket, void *buffer, size_t length);
 

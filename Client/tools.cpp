@@ -23,12 +23,11 @@
     */
 
 /// tener en cuenta el uso de getsockopt para determinar el tipo de socket, getpeername y setsockopt
-bool sendAll(int socket, void *buffer, size_t length) {
+bool sendAll(int socket, const void *buffer, size_t length) {
     size_t total_sent = 0;
-    int socket_type;
 
     while (total_sent < length) {
-        ssize_t bytes_sent = send(socket, (char *)buffer + total_sent, length - total_sent, 0);
+        ssize_t bytes_sent = send(socket, (const char *)buffer + total_sent, length - total_sent, 0);
         if (bytes_sent <= 0) {
             return false; // Error al enviar
         }

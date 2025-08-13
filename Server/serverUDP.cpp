@@ -3,7 +3,6 @@
 int server_udp(){
     int server_fd;
     struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
 
     server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 

@@ -53,10 +53,22 @@ int setup_tcp_connection() {
 }
 
 int send_control_message(int socket, int msg_type, size_t resume_pos) {
+    MessageHeader header;
+    header.magic = htonl(MAGIC_CONTROL);
+    header.type = htonl(MSG_CONTROL);
+    header.length = htonl(sizeof(ControlMessage));
+    
     ControlMessage msg;
     msg.type = htonl(msg_type);
     msg.resume_position = htonl(resume_pos);
     
+    // Enviar header primero
+    if (send(socket, &header, sizeof(header), 0) != sizeof(header)) {
+        printf("Error enviando header de control\n");
+        return -1;
+    }
+    
+    // Enviar mensaje de control
     if (send(socket, &msg, sizeof(msg), 0) != sizeof(msg)) {
         printf("Error enviando mensaje de control\n");
         return -1;
@@ -65,6 +77,7 @@ int send_control_message(int socket, int msg_type, size_t resume_pos) {
 }
 
 int receive_control_message(int socket, ControlMessage* msg) {
+    // El header ya fue leído previamente
     if (recv(socket, msg, sizeof(*msg), 0) != sizeof(*msg)) {
         printf("Error recibiendo mensaje de control\n");
         return -1;
@@ -116,7 +129,7 @@ int switch_protocol(TransferState* state, int* socket) {
 
 int client_with_handoff() {
     std::string filename = "archivoDePrueba.txt";
-    TransferState state = {0};
+    TransferState state;
     int socket;
     char buffer[BUFFER_SIZE];
     
@@ -125,6 +138,7 @@ int client_with_handoff() {
     state.current_protocol = PROTOCOL_UDP;
     state.bytes_sent = 0;
     state.packet_count = 0;
+    state.total_size = 0;
     
     // Abrir archivo
     std::ifstream archivo(filename, std::ios::binary);
@@ -174,10 +188,24 @@ int client_with_handoff() {
             }
         }
         
-        // Enviar chunk
+        // Enviar chunk con header
         size_t bytes_to_send = std::min((size_t)BUFFER_SIZE, state.total_size - state.bytes_sent);
         archivo.read(buffer, bytes_to_send);
         
+        // Preparar header para datos
+        MessageHeader header;
+        header.magic = htonl(MAGIC_DATA);
+        header.type = htonl(MSG_DATA);
+        header.length = htonl(bytes_to_send);
+        
+        // Enviar header primero
+        if (send(socket, &header, sizeof(header), 0) != sizeof(header)) {
+            printf("Error enviando header de datos\n");
+            close(socket);
+            return -1;
+        }
+        
+        // Enviar datos
         if (send(socket, buffer, bytes_to_send, 0) != (ssize_t)bytes_to_send) {
             printf("Error enviando datos\n");
             close(socket);

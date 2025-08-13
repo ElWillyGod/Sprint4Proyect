@@ -65,10 +65,22 @@ int setup_tcp_server() {
 }
 
 int send_control_message(int socket, int msg_type, size_t resume_pos) {
+    MessageHeader header;
+    header.magic = htonl(MAGIC_CONTROL);
+    header.type = htonl(MSG_CONTROL);
+    header.length = htonl(sizeof(ControlMessage));
+    
     ControlMessage msg;
     msg.type = htonl(msg_type);
     msg.resume_position = htonl(resume_pos);
     
+    // Enviar header primero
+    if (send(socket, &header, sizeof(header), 0) != sizeof(header)) {
+        printf("Error enviando header de control\n");
+        return -1;
+    }
+    
+    // Enviar mensaje de control
     if (send(socket, &msg, sizeof(msg), 0) != sizeof(msg)) {
         printf("Error enviando mensaje de control\n");
         return -1;
@@ -77,6 +89,7 @@ int send_control_message(int socket, int msg_type, size_t resume_pos) {
 }
 
 int receive_control_message(int socket, ControlMessage* msg) {
+    // El header ya fue leído en el bucle principal
     if (recv(socket, msg, sizeof(*msg), 0) != sizeof(*msg)) {
         printf("Error recibiendo mensaje de control\n");
         return -1;
@@ -87,26 +100,18 @@ int receive_control_message(int socket, ControlMessage* msg) {
     return 0;
 }
 
-bool is_control_message(int socket) {
-    // Verificar si hay datos disponibles para leer
-    fd_set readfds;
-    struct timeval timeout;
-    FD_ZERO(&readfds);
-    FD_SET(socket, &readfds);
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 0;
-    
-    return select(socket + 1, &readfds, NULL, NULL, &timeout) > 0;
-}
-
 int server_with_handoff() {
-    TransferState state = {0};
+    TransferState state;
+    state.bytes_received = 0;
+    state.current_protocol = PROTOCOL_UDP;
+    state.packet_count = 0;
+    state.total_size = 0;
+    
     int socket;
     char buffer[BUFFER_SIZE];
     std::ofstream archivo;
     
     // Inicializar con UDP
-    state.current_protocol = PROTOCOL_UDP;
     socket = setup_udp_server();
     if (socket < 0) return -1;
     
@@ -119,12 +124,17 @@ int server_with_handoff() {
     }
     filename_length = ntohl(filename_length);
     
-    state.filename.resize(filename_length);
-    if (!recvAll(socket, &state.filename[0], filename_length)) {
+    // Crear buffer temporal para el nombre del archivo
+    char* temp_filename = new char[filename_length + 1];
+    if (!recvAll(socket, temp_filename, filename_length)) {
         printf("Error recibiendo nombre del archivo\n");
+        delete[] temp_filename;
         close(socket);
         return -1;
     }
+    temp_filename[filename_length] = '\0';
+    state.filename = std::string(temp_filename);
+    delete[] temp_filename;
     
     size_t file_size;
     if (!recvAll(socket, &file_size, sizeof(file_size))) {
@@ -142,10 +152,22 @@ int server_with_handoff() {
         return -1;
     }
     
-    // Recibir archivo con handoff
+    // Recibir archivo con handoff usando headers
     while (state.bytes_received < state.total_size) {
-        // Verificar mensajes de control
-        if (is_control_message(socket)) {
+        MessageHeader header;
+        
+        // Recibir header del mensaje
+        if (recv(socket, &header, sizeof(header), 0) != sizeof(header)) {
+            printf("Error recibiendo header\n");
+            break;
+        }
+        
+        header.magic = ntohl(header.magic);
+        header.type = ntohl(header.type);
+        header.length = ntohl(header.length);
+        
+        if (header.magic == MAGIC_CONTROL) {
+            // Es un mensaje de control
             ControlMessage msg;
             if (receive_control_message(socket, &msg) < 0) {
                 break;
@@ -189,20 +211,31 @@ int server_with_handoff() {
                 state.current_protocol = PROTOCOL_UDP;
                 continue;
             }
-        }
-        
-        // Recibir datos
-        size_t bytes_to_receive = std::min((size_t)BUFFER_SIZE, state.total_size - state.bytes_received);
-        ssize_t result = recv(socket, buffer, bytes_to_receive, 0);
-        
-        if (result <= 0) {
-            printf("Error recibiendo datos\n");
+            
+        } else if (header.magic == MAGIC_DATA) {
+            // Son datos del archivo
+            size_t bytes_to_receive = std::min(header.length, (uint32_t)(state.total_size - state.bytes_received));
+            
+            if (bytes_to_receive > BUFFER_SIZE) {
+                printf("Error: chunk demasiado grande\n");
+                break;
+            }
+            
+            ssize_t result = recv(socket, buffer, bytes_to_receive, 0);
+            if (result <= 0) {
+                printf("Error recibiendo datos\n");
+                break;
+            }
+            
+            archivo.write(buffer, result);
+            archivo.flush();
+            state.bytes_received += result;
+            state.packet_count++;
+            
+        } else {
+            printf("Error: magic number inválido\n");
             break;
         }
-        
-        archivo.write(buffer, result);
-        state.bytes_received += result;
-        state.packet_count++;
     }
     
     archivo.close();

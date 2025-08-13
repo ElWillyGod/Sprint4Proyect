@@ -27,14 +27,17 @@ int recvFile(int server_fd) {
     filename_length = ntohl(filename_length);
 
     // nombre del archivo
-
-    std::string filename(filename_length, '\0');
-    if (!recvAll(server_fd, &filename[0], filename_length)) {
+    char* temp_filename = new char[filename_length + 1];
+    if (!recvAll(server_fd, temp_filename, filename_length)) {
         printf("Error al recibir nombre del archivo\n");
+        delete[] temp_filename;
         close(server_fd);
         close(server_fd);
         return -1;
     }
+    temp_filename[filename_length] = '\0';
+    std::string filename(temp_filename);
+    delete[] temp_filename;
 
     // tamanio del archivo
 

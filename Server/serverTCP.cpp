@@ -5,7 +5,6 @@ int server_tcp(){
     int server_fd, cliente;
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    char buffer[BUFFER_SIZE];
 
     server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
