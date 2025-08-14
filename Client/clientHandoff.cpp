@@ -1,8 +1,19 @@
 #include "client.h"
 
-// Función vacía que determina cuándo cambiar de protocolo
+/*
+    posibles criterios para el cambio de protocolo:
+    - Si la transferencia de archivos UDP está tardando demasiado
+    - Si se detecta pérdida de paquetes en UDP
+    - Si el tamaño del archivo supera un umbral específico
+
+*/
 bool should_switch_protocol(TransferState* state) {
-    // Implementar criterio aquí - por ahora siempre false
+    // Cambiar a TCP después de enviar el primer paquete UDP
+    if (state->current_protocol == PROTOCOL_UDP && state->packet_count == 1) {
+        printf("Iniciando cambio de protocolo UDP -> TCP\n");
+        return true;
+    }
+    
     return false;
 }
 
@@ -43,16 +54,27 @@ int setup_tcp_connection() {
     servaddr.sin_port = htons(PORT);
     inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
     
-    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        printf("Error al conectar TCP\n");
-        close(sockfd);
-        return -1;
+    // Reintentar conexión TCP varias veces
+    int retries = 5;
+    while (retries > 0) {
+        if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) == 0) {
+            printf("Conexión TCP establecida exitosamente\n");
+            return sockfd;
+        }
+        
+        printf("Reintentando conexión TCP... (intentos restantes: %d)\n", retries - 1);
+        usleep(200000); // Esperar 200ms antes del siguiente intento
+        retries--;
     }
     
-    return sockfd;
+    printf("Error al conectar TCP después de varios intentos\n");
+    close(sockfd);
+    return -1;
 }
 
 int send_control_message(int socket, int msg_type, size_t resume_pos) {
+    printf("Enviando mensaje de control tipo %d\n", msg_type);
+    
     MessageHeader header;
     header.magic = htonl(MAGIC_CONTROL);
     header.type = htonl(MSG_CONTROL);
@@ -73,18 +95,43 @@ int send_control_message(int socket, int msg_type, size_t resume_pos) {
         printf("Error enviando mensaje de control\n");
         return -1;
     }
+    
+    printf("Mensaje de control enviado exitosamente\n");
     return 0;
 }
 
 int receive_control_message(int socket, ControlMessage* msg) {
-    // El header ya fue leído previamente
-    if (recv(socket, msg, sizeof(*msg), 0) != sizeof(*msg)) {
-        printf("Error recibiendo mensaje de control\n");
+    // Configurar timeout para la recepción
+    struct timeval timeout;
+    timeout.tv_sec = 5;  // 5 segundos timeout
+    timeout.tv_usec = 0;
+    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    
+    // El header ya fue leído previamente o debemos leerlo aquí
+    MessageHeader header;
+    ssize_t result = recv(socket, &header, sizeof(header), 0);
+    if (result != sizeof(header)) {
+        printf("Error recibiendo header de control (recibido: %zd, esperado: %zu)\n", 
+               result, sizeof(header));
+        return -1;
+    }
+    
+    header.magic = ntohl(header.magic);
+    if (header.magic != MAGIC_CONTROL) {
+        printf("Magic number inválido en header de control: 0x%X\n", header.magic);
+        return -1;
+    }
+    
+    result = recv(socket, msg, sizeof(*msg), 0);
+    if (result != sizeof(*msg)) {
+        printf("Error recibiendo mensaje de control (recibido: %zd, esperado: %zu)\n", 
+               result, sizeof(*msg));
         return -1;
     }
     
     msg->type = ntohl(msg->type);
     msg->resume_position = ntohl(msg->resume_position);
+    printf("Mensaje de control recibido exitosamente: tipo %d\n", msg->type);
     return 0;
 }
 
@@ -93,35 +140,68 @@ int switch_protocol(TransferState* state, int* socket) {
     
     if (state->current_protocol == PROTOCOL_UDP) {
         // UDP -> TCP
+        printf("Iniciando cambio UDP -> TCP\n");
+        
         if (send_control_message(*socket, MSG_SWITCH_TO_TCP, state->bytes_sent) < 0) {
+            printf("Error enviando mensaje de cambio a TCP\n");
             return -1;
         }
         
-        if (receive_control_message(*socket, &response) < 0 || response.type != MSG_PROTOCOL_READY) {
+        printf("Esperando confirmación del servidor...\n");
+        if (receive_control_message(*socket, &response) < 0) {
+            printf("Error recibiendo confirmación del servidor\n");
             return -1;
         }
         
+        if (response.type != MSG_PROTOCOL_READY) {
+            printf("Respuesta inesperada del servidor: %d (esperado: %d)\n", 
+                   response.type, MSG_PROTOCOL_READY);
+            return -1;
+        }
+        
+        printf("Confirmación recibida, cerrando socket UDP\n");
         close(*socket);
+        
+        // Dar tiempo al servidor para configurar TCP
+        usleep(300000); // 300ms
+        
+        printf("Estableciendo nueva conexión TCP...\n");
         *socket = setup_tcp_connection();
-        if (*socket < 0) return -1;
+        if (*socket < 0) {
+            printf("Error estableciendo conexión TCP\n");
+            return -1;
+        }
         
         state->current_protocol = PROTOCOL_TCP;
+        printf("Cambio a TCP completado exitosamente\n");
         
     } else {
         // TCP -> UDP
+        printf("Iniciando cambio TCP -> UDP\n");
+        
         if (send_control_message(*socket, MSG_SWITCH_TO_UDP, state->bytes_sent) < 0) {
+            printf("Error enviando mensaje de cambio a UDP\n");
             return -1;
         }
         
-        if (receive_control_message(*socket, &response) < 0 || response.type != MSG_PROTOCOL_READY) {
+        if (receive_control_message(*socket, &response) < 0) {
+            printf("Error recibiendo confirmación del servidor\n");
+            return -1;
+        }
+        
+        if (response.type != MSG_PROTOCOL_READY) {
+            printf("Respuesta inesperada del servidor: %d\n", response.type);
             return -1;
         }
         
         close(*socket);
+        usleep(300000); // 300ms
+        
         *socket = setup_udp_connection();
         if (*socket < 0) return -1;
         
         state->current_protocol = PROTOCOL_UDP;
+        printf("Cambio a UDP completado exitosamente\n");
     }
     
     return 0;
@@ -152,6 +232,8 @@ int client_with_handoff() {
     state.total_size = archivo.tellg();
     archivo.seekg(0, std::ios::beg);
     
+    printf("Archivo a transferir: %s (%zu bytes)\n", filename.c_str(), state.total_size);
+    
     // Conexión inicial UDP
     socket = setup_udp_connection();
     if (socket < 0) return -1;
@@ -177,6 +259,8 @@ int client_with_handoff() {
         return -1;
     }
     
+    printf("Metadatos enviados exitosamente\n");
+    
     // Transferir archivo con handoff
     while (state.bytes_sent < state.total_size) {
         // Verificar si necesita cambio de protocolo
@@ -188,34 +272,28 @@ int client_with_handoff() {
             }
         }
         
-        // Enviar chunk con header
+        // Enviar chunk SIN header (optimizado)
         size_t bytes_to_send = std::min((size_t)BUFFER_SIZE, state.total_size - state.bytes_sent);
         archivo.read(buffer, bytes_to_send);
         
-        // Preparar header para datos
-        MessageHeader header;
-        header.magic = htonl(MAGIC_DATA);
-        header.type = htonl(MSG_DATA);
-        header.length = htonl(bytes_to_send);
-        
-        // Enviar header primero
-        if (send(socket, &header, sizeof(header), 0) != sizeof(header)) {
-            printf("Error enviando header de datos\n");
-            close(socket);
-            return -1;
-        }
-        
-        // Enviar datos
-        if (send(socket, buffer, bytes_to_send, 0) != (ssize_t)bytes_to_send) {
-            printf("Error enviando datos\n");
+        // Enviar datos directamente (sin header)
+        ssize_t sent = send(socket, buffer, bytes_to_send, 0);
+        if (sent != (ssize_t)bytes_to_send) {
+            printf("Error enviando datos (enviado: %zd, esperado: %zu)\n", sent, bytes_to_send);
             close(socket);
             return -1;
         }
         
         state.bytes_sent += bytes_to_send;
         state.packet_count++;
+        
+        printf("Progreso: %zu/%zu bytes (%.1f%%) - Protocolo: %s\n", 
+               state.bytes_sent, state.total_size, 
+               (double)state.bytes_sent / state.total_size * 100,
+               state.current_protocol == PROTOCOL_UDP ? "UDP" : "TCP");
     }
     
+    printf("Transferencia completada exitosamente\n");
     archivo.close();
     close(socket);
     return 0;

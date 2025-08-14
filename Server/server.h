@@ -55,6 +55,7 @@ int setup_tcp_server();
 int setup_udp_server();
 int send_control_message(int socket, int msg_type, size_t resume_pos);
 int receive_control_message(int socket, ControlMessage* msg);
+bool has_control_message_available(int socket);
 
 bool recvAll(int socket, void *buffer, size_t length);
 
