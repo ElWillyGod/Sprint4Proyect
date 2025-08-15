@@ -5,6 +5,10 @@
     - Si la transferencia de archivos UDP está tardando demasiado
     - Si se detecta pérdida de paquetes en UDP
     - Si el tamaño del archivo supera un umbral específico
+    - Congestión de red
+    - Variación de latencia
+    - Calidad de conexión
+    - Microfragmentación en UDP segun el MTU
 
 */
 bool should_switch_protocol(TransferState* state) {
