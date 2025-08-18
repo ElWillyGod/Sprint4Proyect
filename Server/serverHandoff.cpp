@@ -1,4 +1,5 @@
 #include "server.h"
+#include <errno.h>
 
 // Variables globales para UDP client address
 struct sockaddr_in client_addr;
@@ -142,7 +143,7 @@ bool has_control_message_available(int socket) {
 int server_with_handoff() {
     TransferState state;
     state.bytes_received = 0;
-    state.current_protocol = PROTOCOL_UDP;
+    state.current_protocol = PROTOCOL_TCP;
     state.packet_count = 0;
     state.total_size = 0;
     
@@ -150,21 +151,28 @@ int server_with_handoff() {
     char buffer[BUFFER_SIZE];
     std::ofstream archivo;
     
-    // Inicializar con UDP
-    socket = setup_udp_server();
+    // Inicializar con TCP
+    socket = setup_tcp_server();
     if (socket < 0) return -1;
     
-    printf("Servidor UDP iniciado en puerto %d\n", PORT);
+    printf("Servidor TCP iniciado en puerto %d\n", PORT);
     
-    // Recibir metadatos iniciales y capturar dirección del cliente para UDP
+    // Recibir metadatos iniciales
     size_t filename_length;
     
-    // Para UDP, usar recvfrom en la primera recepción para capturar la dirección
+    // Para TCP inicialmente, usar recv normal
     int socket_type;
     socklen_t optlen = sizeof(socket_type);
     getsockopt(socket, SOL_SOCKET, SO_TYPE, &socket_type, &optlen);
     
-    if (socket_type == SOCK_DGRAM) {
+    if (socket_type == SOCK_STREAM) {
+        // TCP: usar recv normal
+        if (!recvAll(socket, &filename_length, sizeof(filename_length))) {
+            printf("Error recibiendo longitud del nombre TCP\n");
+            close(socket);
+            return -1;
+        }
+    } else {
         // UDP: capturar dirección del cliente
         if (recvfrom(socket, &filename_length, sizeof(filename_length), 0, 
                      (struct sockaddr*)&client_addr, &client_addr_len) != sizeof(filename_length)) {
@@ -182,13 +190,6 @@ int server_with_handoff() {
             return -1;
         }
         printf("Socket UDP del servidor conectado al cliente\n");
-    } else {
-        // TCP: usar recv normal
-        if (!recvAll(socket, &filename_length, sizeof(filename_length))) {
-            printf("Error recibiendo longitud del nombre TCP\n");
-            close(socket);
-            return -1;
-        }
     }
     filename_length = ntohl(filename_length);
     
@@ -241,8 +242,8 @@ int server_with_handoff() {
             
             printf("Mensaje de control recibido: tipo %d\n", msg.type);
             
-            if (msg.type == MSG_SWITCH_TO_TCP) {
-                printf("Procesando cambio UDP -> TCP\n");
+            if (msg.type == MSG_SWITCH_TO_UDP) {
+                printf("Procesando cambio TCP -> UDP\n");
                 
                 // Enviar confirmación antes de cerrar el socket
                 if (send_control_message(socket, MSG_PROTOCOL_READY, 0) < 0) {
@@ -256,15 +257,46 @@ int server_with_handoff() {
                 
                 archivo.close();
                 close(socket);
-                printf("Socket UDP cerrado\n");
+                printf("Socket TCP cerrado\n");
                 
-                // Configurar servidor TCP
-                socket = setup_tcp_server();
+                // Configurar servidor UDP
+                socket = setup_udp_server();
                 if (socket < 0) {
-                    printf("Error configurando servidor TCP\n");
+                    printf("Error configurando servidor UDP\n");
                     break;
                 }
-                printf("Servidor TCP configurado exitosamente\n");
+                printf("Servidor UDP configurado exitosamente en puerto %d\n", PORT);
+                
+                // Configurar timeout para recvfrom
+                struct timeval timeout;
+                timeout.tv_sec = 10;  // 10 segundos timeout
+                timeout.tv_usec = 0;
+                setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+                
+                // Esperar primera conexión UDP del cliente para capturar su dirección
+                printf("Esperando reconexión del cliente UDP (timeout 10s)...\n");
+                char sync_buffer[1];
+                client_addr_len = sizeof(client_addr);
+                ssize_t recv_result = recvfrom(socket, sync_buffer, 1, 0, 
+                                             (struct sockaddr*)&client_addr, &client_addr_len);
+                if (recv_result != 1) {
+                    printf("Error esperando reconexión UDP del cliente (resultado: %zd, errno: %d)\n", 
+                           recv_result, errno);
+                    close(socket);
+                    break;
+                }
+                client_addr_set = true;
+                printf("Cliente UDP reconectado exitosamente\n");
+                printf("Dirección capturada: %s:%d (byte sync: 0x%02X)\n", 
+                       inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), sync_buffer[0]);
+                
+                // Conectar el socket del servidor al cliente
+                if (connect(socket, (struct sockaddr*)&client_addr, client_addr_len) < 0) {
+                    printf("Error conectando socket UDP del servidor al cliente (errno: %d)\n", errno);
+                    close(socket);
+                    break;
+                }
+                printf("Socket UDP del servidor conectado al cliente exitosamente\n");
                 
                 // Reabrir archivo en posición correcta
                 archivo.open(state.filename, std::ios::binary | std::ios::in | std::ios::out);
@@ -275,12 +307,12 @@ int server_with_handoff() {
                 archivo.seekp(state.bytes_received);
                 printf("Archivo reabierto en posición %zu\n", state.bytes_received);
                 
-                state.current_protocol = PROTOCOL_TCP;
-                printf("Cambio a TCP completado exitosamente\n");
+                state.current_protocol = PROTOCOL_UDP;
+                printf("Cambio a UDP completado exitosamente\n");
                 continue;
                 
-            } else if (msg.type == MSG_SWITCH_TO_UDP) {
-                printf("Procesando cambio TCP -> UDP\n");
+            } else if (msg.type == MSG_SWITCH_TO_TCP) {
+                printf("Procesando cambio UDP -> TCP\n");
                 
                 // Enviar confirmación
                 if (send_control_message(socket, MSG_PROTOCOL_READY, 0) < 0) {
@@ -293,15 +325,15 @@ int server_with_handoff() {
                 archivo.close();
                 close(socket);
                 
-                socket = setup_udp_server();
+                socket = setup_tcp_server();
                 if (socket < 0) break;
                 
                 // Reabrir archivo en posición correcta
                 archivo.open(state.filename, std::ios::binary | std::ios::in | std::ios::out);
                 archivo.seekp(state.bytes_received);
                 
-                state.current_protocol = PROTOCOL_UDP;
-                printf("Cambio a UDP completado exitosamente\n");
+                state.current_protocol = PROTOCOL_TCP;
+                printf("Cambio a TCP completado exitosamente\n");
                 continue;
             }
             
@@ -327,7 +359,7 @@ int server_with_handoff() {
             printf("Progreso: %zu/%zu bytes (%.1f%%) - Protocolo: %s\n", 
                    state.bytes_received, state.total_size, 
                    (double)state.bytes_received / state.total_size * 100,
-                   state.current_protocol == PROTOCOL_UDP ? "UDP" : "TCP");
+                   state.current_protocol == PROTOCOL_TCP ? "TCP" : "UDP");
         }
     }
     

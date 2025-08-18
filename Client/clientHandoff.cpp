@@ -1,4 +1,5 @@
 #include "client.h"
+#include <errno.h>
 
 /*
     posibles criterios para el cambio de protocolo:
@@ -12,9 +13,9 @@
 
 */
 bool should_switch_protocol(TransferState* state) {
-    // Cambiar a TCP después de enviar el primer paquete UDP
-    if (state->current_protocol == PROTOCOL_UDP && state->packet_count == 1) {
-        printf("Iniciando cambio de protocolo UDP -> TCP\n");
+    // Cambiar a UDP después de enviar el primer paquete TCP
+    if (state->current_protocol == PROTOCOL_TCP && state->packet_count == 1) {
+        printf("Iniciando cambio de protocolo TCP -> UDP\n");
         return true;
     }
     
@@ -142,12 +143,12 @@ int receive_control_message(int socket, ControlMessage* msg) {
 int switch_protocol(TransferState* state, int* socket) {
     ControlMessage response;
     
-    if (state->current_protocol == PROTOCOL_UDP) {
-        // UDP -> TCP
-        printf("Iniciando cambio UDP -> TCP\n");
+    if (state->current_protocol == PROTOCOL_TCP) {
+        // TCP -> UDP
+        printf("Iniciando cambio TCP -> UDP\n");
         
-        if (send_control_message(*socket, MSG_SWITCH_TO_TCP, state->bytes_sent) < 0) {
-            printf("Error enviando mensaje de cambio a TCP\n");
+        if (send_control_message(*socket, MSG_SWITCH_TO_UDP, state->bytes_sent) < 0) {
+            printf("Error enviando mensaje de cambio a UDP\n");
             return -1;
         }
         
@@ -163,28 +164,46 @@ int switch_protocol(TransferState* state, int* socket) {
             return -1;
         }
         
-        printf("Confirmación recibida, cerrando socket UDP\n");
+        printf("Confirmación recibida, cerrando socket TCP\n");
         close(*socket);
         
-        // Dar tiempo al servidor para configurar TCP
+        // Dar tiempo al servidor para configurar UDP
         usleep(300000); // 300ms
         
-        printf("Estableciendo nueva conexión TCP...\n");
-        *socket = setup_tcp_connection();
+        printf("Estableciendo nueva conexión UDP...\n");
+        
+        // Dar más tiempo al servidor para configurar UDP
+        usleep(1000000); // 1 segundo
+        
+        *socket = setup_udp_connection();
         if (*socket < 0) {
-            printf("Error estableciendo conexión TCP\n");
+            printf("Error estableciendo conexión UDP\n");
             return -1;
         }
+        printf("Socket UDP creado exitosamente\n");
         
-        state->current_protocol = PROTOCOL_TCP;
-        printf("Cambio a TCP completado exitosamente\n");
+        // Enviar un byte de sincronización para que el servidor capture nuestra dirección
+        char sync_byte = 0x01;
+        printf("Enviando byte de sincronización UDP...\n");
+        if (send(*socket, &sync_byte, 1, 0) != 1) {
+            printf("Error enviando byte de sincronización UDP (errno: %d)\n", errno);
+            close(*socket);
+            return -1;
+        }
+        printf("Byte de sincronización UDP enviado exitosamente\n");
+        
+        // Dar tiempo al servidor para procesar
+        usleep(100000); // 100ms
+        
+        state->current_protocol = PROTOCOL_UDP;
+        printf("Cambio a UDP completado exitosamente\n");
         
     } else {
-        // TCP -> UDP
-        printf("Iniciando cambio TCP -> UDP\n");
+        // UDP -> TCP
+        printf("Iniciando cambio UDP -> TCP\n");
         
-        if (send_control_message(*socket, MSG_SWITCH_TO_UDP, state->bytes_sent) < 0) {
-            printf("Error enviando mensaje de cambio a UDP\n");
+        if (send_control_message(*socket, MSG_SWITCH_TO_TCP, state->bytes_sent) < 0) {
+            printf("Error enviando mensaje de cambio a TCP\n");
             return -1;
         }
         
@@ -201,11 +220,11 @@ int switch_protocol(TransferState* state, int* socket) {
         close(*socket);
         usleep(300000); // 300ms
         
-        *socket = setup_udp_connection();
+        *socket = setup_tcp_connection();
         if (*socket < 0) return -1;
         
-        state->current_protocol = PROTOCOL_UDP;
-        printf("Cambio a UDP completado exitosamente\n");
+        state->current_protocol = PROTOCOL_TCP;
+        printf("Cambio a TCP completado exitosamente\n");
     }
     
     return 0;
@@ -219,7 +238,7 @@ int client_with_handoff() {
     
     // Inicializar estado
     state.filename = filename;
-    state.current_protocol = PROTOCOL_UDP;
+    state.current_protocol = PROTOCOL_TCP;
     state.bytes_sent = 0;
     state.packet_count = 0;
     state.total_size = 0;
@@ -238,8 +257,8 @@ int client_with_handoff() {
     
     printf("Archivo a transferir: %s (%zu bytes)\n", filename.c_str(), state.total_size);
     
-    // Conexión inicial UDP
-    socket = setup_udp_connection();
+    // Conexión inicial TCP
+    socket = setup_tcp_connection();
     if (socket < 0) return -1;
     
     // Enviar metadatos iniciales
@@ -294,7 +313,7 @@ int client_with_handoff() {
         printf("Progreso: %zu/%zu bytes (%.1f%%) - Protocolo: %s\n", 
                state.bytes_sent, state.total_size, 
                (double)state.bytes_sent / state.total_size * 100,
-               state.current_protocol == PROTOCOL_UDP ? "UDP" : "TCP");
+               state.current_protocol == PROTOCOL_TCP ? "TCP" : "UDP");
     }
     
     printf("Transferencia completada exitosamente\n");
