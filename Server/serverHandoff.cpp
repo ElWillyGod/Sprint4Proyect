@@ -1,7 +1,6 @@
 #include "server.h"
 #include <errno.h>
 
-// Variables globales para UDP client address
 struct sockaddr_in client_addr;
 socklen_t client_addr_len = sizeof(client_addr);
 bool client_addr_set = false;
@@ -87,7 +86,6 @@ int send_control_message(int socket, int msg_type, size_t resume_pos) {
     msg.type = htonl(msg_type);
     msg.resume_position = htonl(resume_pos);
     
-    // Ahora ambos UDP y TCP pueden usar send() porque UDP está "conectado"
     if (send(socket, &header, sizeof(header), 0) != sizeof(header)) {
         printf("Error enviando header de control\n");
         return -1;
@@ -103,11 +101,9 @@ int send_control_message(int socket, int msg_type, size_t resume_pos) {
 }
 
 int receive_control_message(int socket, ControlMessage* msg) {
-    // El header ya fue leído en el bucle principal
     ssize_t result = recv(socket, msg, sizeof(*msg), 0);
     if (result != sizeof(*msg)) {
-        printf("Error recibiendo mensaje de control (recibido: %zd, esperado: %zu)\n", 
-               result, sizeof(*msg));
+        printf("error recibiendo mensaje de control \n");
         return -1;
     }
     
@@ -117,23 +113,24 @@ int receive_control_message(int socket, ControlMessage* msg) {
 }
 
 bool has_control_message_available(int socket) {
-    // Verificar si hay datos disponibles para leer sin bloquear
+
     fd_set readfds;
     struct timeval timeout;
     FD_ZERO(&readfds);
     FD_SET(socket, &readfds);
     timeout.tv_sec = 0;
-    timeout.tv_usec = 1000; // 1ms timeout
+    timeout.tv_usec = 1000;
     
     if (select(socket + 1, &readfds, NULL, NULL, &timeout) > 0) {
-        // Hay datos disponibles, verificar si es control message
+
         MessageHeader header;
-        ssize_t result = recv(socket, &header, sizeof(header), MSG_PEEK); // MSG_PEEK no consume datos
-        
+        ssize_t result = recv(socket, &header, sizeof(header), MSG_PEEK);
+
         if (result == sizeof(header)) {
             header.magic = ntohl(header.magic);
-            printf("Detectado magic: 0x%X (%s)\n", header.magic, 
-                   header.magic == MAGIC_CONTROL ? "CONTROL" : "DATA/OTHER");
+
+            printf("Detectado magic \n");
+
             return (header.magic == MAGIC_CONTROL);
         }
     }
@@ -151,22 +148,19 @@ int server_with_handoff() {
     char buffer[BUFFER_SIZE];
     std::ofstream archivo;
     
-    // Inicializar con TCP
     socket = setup_tcp_server();
     if (socket < 0) return -1;
     
-    printf("Servidor TCP iniciado en puerto %d\n", PORT);
+    printf("Servidor TCP \n");
     
-    // Recibir metadatos iniciales
     size_t filename_length;
     
-    // Para TCP inicialmente, usar recv normal
     int socket_type;
     socklen_t optlen = sizeof(socket_type);
     getsockopt(socket, SOL_SOCKET, SO_TYPE, &socket_type, &optlen);
     
     if (socket_type == SOCK_STREAM) {
-        // TCP: usar recv normal
+
         if (!recvAll(socket, &filename_length, sizeof(filename_length))) {
             printf("Error recibiendo longitud del nombre TCP\n");
             close(socket);
@@ -191,9 +185,9 @@ int server_with_handoff() {
         }
         printf("Socket UDP del servidor conectado al cliente\n");
     }
+
     filename_length = ntohl(filename_length);
     
-    // Crear buffer temporal para el nombre del archivo
     char* temp_filename = new char[filename_length + 1];
     if (!recvAll(socket, temp_filename, filename_length)) {
         printf("Error recibiendo nombre del archivo\n");
@@ -201,6 +195,7 @@ int server_with_handoff() {
         close(socket);
         return -1;
     }
+
     temp_filename[filename_length] = '\0';
     state.filename = std::string(temp_filename);
     delete[] temp_filename;
@@ -211,26 +206,26 @@ int server_with_handoff() {
         close(socket);
         return -1;
     }
+
     state.total_size = ntohl(file_size);
     
     printf("Recibiendo archivo: %s (%zu bytes)\n", state.filename.c_str(), state.total_size);
     
-    // Abrir archivo para escritura
     archivo.open(state.filename, std::ios::binary);
     if (!archivo) {
-        printf("Error creando archivo\n");
+        printf("error creando archivo\n");
         close(socket);
         return -1;
     }
     
-    // Recibir archivo con handoff optimizado
     bool handoff_completed = false;
     while (state.bytes_received < state.total_size) {
-        // Solo verificar mensajes de control durante el handoff inicial
+
         if (!handoff_completed && has_control_message_available(socket)) {
             printf("Procesando mensaje de control\n");
-            // Procesar mensaje de control
+
             MessageHeader header;
+            
             if (recv(socket, &header, sizeof(header), 0) != sizeof(header)) {
                 printf("Error recibiendo header de control\n");
                 break;
@@ -244,6 +239,7 @@ int server_with_handoff() {
             printf("Mensaje de control recibido: tipo %d\n", msg.type);
             
             if (msg.type == MSG_SWITCH_TO_UDP) {
+
                 printf("Procesando cambio TCP -> UDP\n");
                 
                 // Enviar confirmación antes de cerrar el socket
@@ -251,10 +247,10 @@ int server_with_handoff() {
                     printf("Error enviando MSG_PROTOCOL_READY\n");
                     break;
                 }
-                printf("MSG_PROTOCOL_READY enviado exitosamente\n");
+                printf("MSG_PROTOCOL_READY enviado\n");
                 
                 // Dar tiempo para que el cliente reciba la respuesta
-                usleep(500000); // 500ms - tiempo suficiente para que el cliente reciba
+                usleep(500000); 
                 
                 archivo.close();
                 close(socket);
@@ -268,55 +264,53 @@ int server_with_handoff() {
                 }
                 printf("Servidor UDP configurado exitosamente en puerto %d\n", PORT);
                 
-                // Configurar timeout para recvfrom
                 struct timeval timeout;
-                timeout.tv_sec = 10;  // 10 segundos timeout
+                timeout.tv_sec = 10;  
                 timeout.tv_usec = 0;
                 setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
                 
-                // Esperar primera conexión UDP del cliente para capturar su dirección
-                printf("Esperando reconexión del cliente UDP (timeout 10s)...\n");
+                printf("Esperando reconexión del cliente UDP\n");
                 char sync_buffer[1];
                 client_addr_len = sizeof(client_addr);
                 ssize_t recv_result = recvfrom(socket, sync_buffer, 1, 0, 
                                              (struct sockaddr*)&client_addr, &client_addr_len);
+
                 if (recv_result != 1) {
-                    printf("Error esperando reconexión UDP del cliente (resultado: %zd, errno: %d)\n", 
-                           recv_result, errno);
+                    printf("error esperando reconexión UDP\n");
                     close(socket);
                     break;
                 }
+
                 client_addr_set = true;
-                printf("Cliente UDP reconectado exitosamente\n");
-                printf("Dirección capturada: %s:%d (byte sync: 0x%02X)\n", 
+                printf("UDP reconectado exitosamente\n");
+                
+
+                printf("dirección: %s:%d (byte sync: 0x%02X)\n",
                        inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), sync_buffer[0]);
                 
-                // Conectar el socket del servidor al cliente
                 if (connect(socket, (struct sockaddr*)&client_addr, client_addr_len) < 0) {
-                    printf("Error conectando socket UDP del servidor al cliente (errno: %d)\n", errno);
+                    printf("error conectando socket UDP del servidor al cliente\n");
                     close(socket);
                     break;
                 }
-                printf("Socket UDP del servidor conectado al cliente exitosamente\n");
+                printf("socket UDP del servidor conectado al cliente exitosamente\n");
                 
-                // Quitar el timeout para evitar EWOULDBLOCK durante la transferencia
                 struct timeval no_timeout;
                 no_timeout.tv_sec = 0;
                 no_timeout.tv_usec = 0;
                 setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &no_timeout, sizeof(no_timeout));
                 
-                // Reabrir archivo en posición correcta
                 archivo.open(state.filename, std::ios::binary | std::ios::in | std::ios::out);
                 if (!archivo) {
-                    printf("Error reabriendo archivo\n");
+                    printf("error reabriendo archivo\n");
                     break;
                 }
                 archivo.seekp(state.bytes_received);
-                printf("Archivo reabierto en posición %zu\n", state.bytes_received);
+                printf("archivo reabierto en posición %zu\n", state.bytes_received);
                 
                 state.current_protocol = PROTOCOL_UDP;
                 handoff_completed = true;
-                printf("Cambio a UDP completado exitosamente\n");
+                printf("cambio a UDP completado exitosamente\n");
                 continue;
                 
             } else if (msg.type == MSG_SWITCH_TO_TCP) {
@@ -353,10 +347,8 @@ int server_with_handoff() {
                 break;
             }
             
-            // Recibir datos directamente (SIN header)
             size_t bytes_to_receive = std::min((size_t)BUFFER_SIZE, state.total_size - state.bytes_received);
             
-            // Configurar timeout corto para detectar fin de transferencia
             struct timeval timeout;
             timeout.tv_sec = 2;  // 2 segundos timeout
             timeout.tv_usec = 0;
