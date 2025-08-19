@@ -224,9 +224,10 @@ int server_with_handoff() {
     }
     
     // Recibir archivo con handoff optimizado
+    bool handoff_completed = false;
     while (state.bytes_received < state.total_size) {
-        // Verificar si hay mensaje de control disponible
-        if (has_control_message_available(socket)) {
+        // Solo verificar mensajes de control durante el handoff inicial
+        if (!handoff_completed && has_control_message_available(socket)) {
             printf("Procesando mensaje de control\n");
             // Procesar mensaje de control
             MessageHeader header;
@@ -298,6 +299,12 @@ int server_with_handoff() {
                 }
                 printf("Socket UDP del servidor conectado al cliente exitosamente\n");
                 
+                // Quitar el timeout para evitar EWOULDBLOCK durante la transferencia
+                struct timeval no_timeout;
+                no_timeout.tv_sec = 0;
+                no_timeout.tv_usec = 0;
+                setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &no_timeout, sizeof(no_timeout));
+                
                 // Reabrir archivo en posición correcta
                 archivo.open(state.filename, std::ios::binary | std::ios::in | std::ios::out);
                 if (!archivo) {
@@ -308,6 +315,7 @@ int server_with_handoff() {
                 printf("Archivo reabierto en posición %zu\n", state.bytes_received);
                 
                 state.current_protocol = PROTOCOL_UDP;
+                handoff_completed = true;
                 printf("Cambio a UDP completado exitosamente\n");
                 continue;
                 
@@ -333,18 +341,38 @@ int server_with_handoff() {
                 archivo.seekp(state.bytes_received);
                 
                 state.current_protocol = PROTOCOL_TCP;
+                handoff_completed = true;
                 printf("Cambio a TCP completado exitosamente\n");
                 continue;
             }
             
         } else {
+            // Verificar si ya completamos la transferencia
+            if (state.bytes_received >= state.total_size) {
+                printf("Transferencia completada, saliendo del bucle\n");
+                break;
+            }
+            
             // Recibir datos directamente (SIN header)
             size_t bytes_to_receive = std::min((size_t)BUFFER_SIZE, state.total_size - state.bytes_received);
+            
+            // Configurar timeout corto para detectar fin de transferencia
+            struct timeval timeout;
+            timeout.tv_sec = 2;  // 2 segundos timeout
+            timeout.tv_usec = 0;
+            setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+            
             ssize_t result = recv(socket, buffer, bytes_to_receive, 0);
             
             if (result <= 0) {
                 if (result == 0) {
                     printf("Conexión cerrada por el cliente\n");
+                } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    printf("Timeout esperando datos - verificando si transferencia completada\n");
+                    if (state.bytes_received >= state.total_size) {
+                        printf("Transferencia completada por timeout\n");
+                        break;
+                    }
                 } else {
                     printf("Error recibiendo datos: %d\n", errno);
                 }
@@ -355,6 +383,12 @@ int server_with_handoff() {
             archivo.flush();
             state.bytes_received += result;
             state.packet_count++;
+            
+            // Verificar si completamos después de este chunk
+            if (state.bytes_received >= state.total_size) {
+                printf("Transferencia completada después de recibir chunk\n");
+                break;
+            }
             
             printf("Progreso: %zu/%zu bytes (%.1f%%) - Protocolo: %s\n", 
                    state.bytes_received, state.total_size, 

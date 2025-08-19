@@ -12,3 +12,811 @@ The standard chunk of Lorem Ipsum used since the 1500s is reproduced below for t
 
 Where can I get some?
 There are many variations of passages of Lorem Ipsum available, but the majority have suffered alteration in some form, by injected humour, or randomised words which don't look even slightly believable. If you are going to use a passage of Lorem Ipsum, you need to be sure there isn't anything embarrassing hidden in the middle of text. All the Lorem Ipsum generators on the Internet tend to repeat predefined chunks as necessary, making this the first true generator on the Internet. It uses a dictionary of over 200 Latin words, combined with a handful of model sentence structures, to generate Lorem Ipsum which looks reasonable. The generated Lorem Ipsum is therefore always free from repetition, injected humour, or non-characteristic words etc.
+
+El reensamblaje de paquetes de red es el proceso de juntar fragmentos de paquetes que se han dividido para su transmisión, permitiendo que el dispositivo de destino reconstruya el paquete original completo. En redes, los dispositivos a menudo necesitan dividir paquetes grandes en fragmentos más pequeños para adaptarse a los límites de tamaño de los medios de transmisión, como el tamaño máximo de trama de una red Ethernet (MTU). El control manual del reensamblaje no es común, ya que generalmente es un proceso automático gestionado por los protocolos de red como TCP y UDP. 
+¿Por qué se fragmentan los paquetes?
+
+    Unidad de Transmisión Máxima (MTU):
+    Cada tipo de medio de red tiene un tamaño máximo de paquete que puede enviar, conocido como MTU. 
+
+Fragmentación:
+Si un paquete es más grande que la MTU de la red, se divide en fragmentos más pequeños. 
+Encabezados de Fragmentación:
+Cada fragmento incluye información en su encabezado para indicar que es parte de un paquete más grande y cómo se relaciona con otros fragmentos. 
+
+¿Cómo funciona el reensamblaje?
+
+    Reconocimiento de fragmentos:
+    El protocolo de transporte (como TCP) identifica los fragmentos que pertenecen al mismo paquete original, utilizando un identificador único. 
+
+Reconstrucción:
+Los fragmentos se almacenan temporalmente hasta que se reciben todos. Luego, se reensamblan en el orden correcto para formar el paquete original completo. 
+Capas de protocolo:
+La fragmentación y el reensamblaje pueden ocurrir en varias capas del modelo OSI, siendo la capa de red (IP) la que maneja la fragmentación y la capa de transporte (TCP/UDP) la que se encarga de reensamblar los datos. 
+
+Control manual:
+
+    Generalmente automático:
+    El proceso de reensamblaje es generalmente automático y transparente para el usuario final y las aplicaciones. 
+
+Preferencias en herramientas como Wireshark:
+Algunas herramientas de análisis de red, como Wireshark, permiten configurar el reensamblaje de paquetes para fines de análisis o depuración, pero no para controlarlo directamente en la red. 
+Control a través de protocolos:
+El control del reensamblaje se realiza a través de los protocolos de red, no mediante ajustes manuales directos en la configuración del sistema operativo o del hardware de red. 
+
+Importancia del reensamblaje:
+
+    Entrega confiable de datos:
+    Permite la transferencia de datos grandes y fragmentados de manera confiable, incluso si la red tiene limitaciones de tamaño de paquete. 
+
+Eficiencia de la red:
+Permite que los dispositivos envíen y reciban datos eficientemente sin preocuparse por los límites de tamaño de la red. 
+Escalabilidad:
+Facilita la escalabilidad de las redes al permitir que los paquetes se dividan para adaptarse a diferentes tipos de medios y topologías. 
+
+En resumen, el reensamblaje de paquetes es un proceso esencial en redes que permite la transferencia de datos de forma confiable y eficiente, y aunque no es algo que se controle manualmente en la mayoría de los casos, se puede configurar en herramientas de análisis para fines de depuración y diagnóstico. 
+
+
+
+In every layer, a packet has two disjoint sections: Header and Payload.
+
+non-Raw socket means you can just determine Transport Layer Payload. i.e it is the OS' task to create the Transport, Network, and Data Link layer headers.
+
+Raw socket means you can determine every section of a packet, be it header or payload. Please note that raw socket is a general word. I categorize raw socket into: Network Socket and Data-Link Socket (or alternativly L3 Socket and L2 Socket).
+
+In L3 Socket you can set the header and payload of a packet in the network layer. For example: if a network layer protocol is IPv4, you can determine the IPv4 header and payload. Thus you can set the transport layer header/payload, ICMP header/payload, Routing Protocols header/payload, ... .
+
+In L2 Socket you can set the header and payload of a packet in the data link layer, i.e everything in the packet. Thus you do everything done with L3 Socket + determine ARP header/payload, PPP header/payload, PPPOE header/payload, ... .
+
+Now in programming:
+
+    socket(AF_INET,RAW_SOCKET,...) means L3 socket , Network Layer Protocol = IPv4
+    socket(AF_IPX,RAW_SOCKET,...) means L3 socket , Network Layer Protocol = IPX
+    socket(AF_INET6,RAW_SOCKET,...) means L3 socket , Network Layer Protocol=IPv6
+    socket(AF_PACKET,RAW_SOCKET,...) means L2 socket , Data-link Layer Protocol= Ethernet
+
+The third parameter specify the payload protocol.
+
+Lately I’ve been writing some code to send packets to a specific MAC address from a specific interface. I’m sure this will come in handy again so here is how it goes:
+
+Includes:
+(might not need all of these)
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <netinet/ether.h>
+#include <linux/if_packet.h>
+
+Open the raw socket:
+
+int sockfd;
+...
+/* Open RAW socket to send on */
+if ((sockfd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1) {
+    perror("socket");
+}
+
+Get the index of the interface to send on:
+
+struct ifreq if_idx;
+...
+memset(&if_idx, 0, sizeof(struct ifreq));
+strncpy(if_idx.ifr_name, "eth0", IFNAMSIZ-1);
+if (ioctl(sock, SIOCGIFINDEX, &if_idx) < 0)
+    perror("SIOCGIFINDEX");
+
+Get the MAC address of the interface to send on:
+
+struct ifreq if_mac;
+...
+memset(&if_mac, 0, sizeof(struct ifreq));
+strncpy(if_mac.ifr_name, "eth0", IFNAMSIZ-1);
+if (ioctl(sock, SIOCGIFHWADDR, &if_mac) < 0)
+    perror("SIOCGIFHWADDR");
+
+Get the IP address of the interface to send on:
+
+struct ifreq if_ip;
+...
+memset(&if_ip, 0, sizeof(struct ifreq));
+strncpy(if_ip.ifr_name, "eth0", IFNAMSIZ-1);
+if (ioctl(sock, SIOCGIFADDR, &if_ip) < 0)
+    perror("SIOCGIFADDR");
+
+Construct the Ethernet header:
+
+int tx_len = 0;
+char sendbuf[1024];
+struct ether_header *eh = (struct ether_header *) sendbuf;
+...
+memset(sendbuf, 0, 1024);
+/* Ethernet header */
+eh->ether_shost[0] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[0];
+eh->ether_shost[1] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[1];
+eh->ether_shost[2] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[2];
+eh->ether_shost[3] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[3];
+eh->ether_shost[4] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[4];
+eh->ether_shost[5] = ((uint8_t *)&if_mac.ifr_hwaddr.sa_data)[5];
+eh->ether_dhost[0] = MY_DEST_MAC0;
+eh->ether_dhost[1] = MY_DEST_MAC1;
+eh->ether_dhost[2] = MY_DEST_MAC2;
+eh->ether_dhost[3] = MY_DEST_MAC3;
+eh->ether_dhost[4] = MY_DEST_MAC4;
+eh->ether_dhost[5] = MY_DEST_MAC5;
+eh->ether_type = htons(ETH_P_IP);
+tx_len += sizeof(struct ether_header);
+
+Construct the IP header:
+
+struct iphdr *iph = (struct iphdr *) (sendbuf + sizeof(struct ether_header));
+...
+/* IP Header */
+iph->ihl = 5;
+iph->version = 4;
+iph->tos = 16; // Low delay
+iph->id = htons(54321);
+iph->ttl = ttl; // hops
+iph->protocol = 17; // UDP
+/* Source IP address, can be spoofed */
+iph->saddr = inet_addr(inet_ntoa(((struct sockaddr_in *)&if_ip.ifr_addr)->sin_addr));
+// iph->saddr = inet_addr("192.168.0.112");
+/* Destination IP address */
+iph->daddr = inet_addr("192.168.0.111");
+tx_len += sizeof(struct iphdr);
+
+Construct the UDP header:
+
+struct udphdr *udph = (struct udphdr *) (sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header));
+...
+/* UDP Header */
+udph->source = htons(3423);
+udph->dest = htons(5342);
+udph->check = 0; // skip
+tx_len += sizeof(struct udphdr);
+
+Fill in UDP payload:
+
+/* Packet data */
+sendbuf[tx_len++] = 0xde;
+sendbuf[tx_len++] = 0xad;
+sendbuf[tx_len++] = 0xbe;
+sendbuf[tx_len++] = 0xef;
+
+Fill in remaining header info:
+
+unsigned short csum(unsigned short *buf, int nwords)
+{
+    unsigned long sum;
+    for(sum=0; nwords>0; nwords--)
+        sum += *buf++;
+    sum = (sum >> 16) + (sum &0xffff);
+    sum += (sum >> 16);
+    return (unsigned short)(~sum);
+}
+...
+/* Length of UDP payload and header */
+udph->len = htons(tx_len - sizeof(struct ether_header) - sizeof(struct iphdr));
+/* Length of IP payload and header */
+iph->tot_len = htons(tx_len - sizeof(struct ether_header));
+/* Calculate IP checksum on completed header */
+iph->check = csum((unsigned short *)(sendbuf+sizeof(struct ether_header)), sizeof(struct iphdr)/2);
+
+Send the raw Ethernet packet:
+
+/* Destination address */
+struct sockaddr_ll socket_address;
+...
+/* Index of the network device */
+socket_address.sll_ifindex = if_idx.ifr_ifindex;
+/* Address length*/
+socket_address.sll_halen = ETH_ALEN;
+/* Destination MAC */
+socket_address.sll_addr[0] = MY_DEST_MAC0;
+socket_address.sll_addr[1] = MY_DEST_MAC1;
+socket_address.sll_addr[2] = MY_DEST_MAC2;
+socket_address.sll_addr[3] = MY_DEST_MAC3;
+socket_address.sll_addr[4] = MY_DEST_MAC4;
+socket_address.sll_addr[5] = MY_DEST_MAC5;
+/* Send packet */
+if (sendto(sock, sendbuf, tx_len, 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0)
+    printf("Send failed\n");
+Fundamentos del Control de Congestión de TCP
+Definición y Objetivos del Control de Congestión
+
+El control de congestión en TCP (Protocolo de Control de Transmisión) es un mecanismo diseñado para regular la cantidad de datos que pueden ser enviados a la red sin confirmación. Su principal objetivo es evitar la sobrecarga de la red, que puede ocurrir cuando demasiados paquetes son enviados en un período corto, superando la capacidad de la red para manejarlos eficientemente. Esta regulación es crucial para mantener un rendimiento óptimo y la estabilidad de la red.
+
+La congestión se produce cuando los nodos de la red (como routers y switches) están sobrecargados de datos, lo que lleva a un aumento en el tiempo de retardo y la probabilidad de pérdida de paquetes. El control de congestión busca equilibrar la carga en la red, ajustando dinámicamente la tasa de transmisión de los datos en función de las condiciones actuales de la red. Esto se logra mediante una serie de algoritmos y mecanismos que detectan, previenen y reaccionan ante los signos de congestión.
+Problemas Causados por la Congestión de Red
+
+La congestión en una red de datos puede llevar a varios problemas serios, entre ellos:
+
+    Pérdida de Paquetes: Cuando los buffers en los routers se llenan debido a la congestión, los paquetes en exceso son descartados, lo que requiere su retransmisión y, por ende, reduce la eficiencia general de la red.
+    Latencia Alta: Un mayor volumen de tráfico en la red puede aumentar significativamente los tiempos de retardo, afectando negativamente la experiencia del usuario, especialmente en aplicaciones en tiempo real como las llamadas VoIP y juegos en línea.
+    Fluctuaciones de Throughput: La variabilidad en el throughput (rendimiento) de la red puede ser un signo de congestión intermitente, lo que dificulta la planificación de la capacidad y la calidad del servicio.
+    Injusticia en la Asignación de Recursos: Sin un control de congestión efectivo, ciertos flujos de datos pueden monopolizar los recursos de la red, mientras que otros pueden quedar con un ancho de banda insuficiente.
+
+Diferencia entre Control de Congestión y Control de Flujo
+
+Aunque a menudo se confunden, el control de congestión y el control de flujo en TCP son mecanismos distintos diseñados para resolver diferentes problemas:
+
+    Control de Flujo: Se enfoca en la relación entre el emisor y el receptor. Su objetivo es evitar que el emisor sobrecargue al receptor con demasiados datos. Utiliza el mecanismo de ventana deslizante de TCP, donde el receptor anuncia dinámicamente el tamaño de la ventana de recepción (la cantidad de datos que está dispuesto a recibir antes de enviar un acuse de recibo) al emisor, regulando así la velocidad a la que el emisor puede enviar datos.
+    Control de Congestión: Por otro lado, el control de congestión se ocupa de la relación entre el emisor y la red. Busca prevenir o mitigar la sobrecarga de datos en la red para mantener un alto rendimiento y evitar la pérdida de paquetes. A diferencia del control de flujo, que es una cuestión de capacidad del receptor, el control de congestión se relaciona con la capacidad de toda la red.
+
+En resumen, mientras que el control de flujo se asegura de que el receptor no se vea abrumado, el control de congestión se asegura de que la red en su conjunto no se vea sobrecargada. Ambos mecanismos trabajan en conjunto para garantizar una transmisión de datos eficiente y fiable en TCP.
+Mecanismos Básicos de Control de Congestión en TCP
+
+El control de congestión en TCP emplea varios mecanismos fundamentales para gestionar y mitigar la congestión en las redes. Estos mecanismos trabajan juntos para ajustar la tasa de envío de datos, basándose en la percepción del estado actual de la red. Los más importantes son el Slow Start, Congestion Avoidance, Fast Retransmit y Fast Recovery.
+Slow Start (Inicio Lento)
+
+    Funcionamiento: El algoritmo de Slow Start es el primer paso en el control de congestión de TCP. Al iniciar una conexión, TCP no sabe cuánta capacidad está disponible en la red. Por lo tanto, comienza con una tasa de envío conservadora. Inicia con una ventana de congestión pequeña, típicamente de uno o dos segmentos de tamaño máximo de segmento (MSS). Por cada acuse de recibo (ACK) recibido, el tamaño de la ventana de congestión se incrementa en un MSS, lo que lleva a un aumento exponencial del tamaño de la ventana por cada RTT (Round-Trip Time).
+    Objetivo: El objetivo es aumentar rápidamente la tasa de transmisión hasta encontrar la capacidad de la red, sin iniciar la transferencia con una carga pesada que podría provocar inmediatamente congestión.
+
+Congestion Avoidance (Evitación de la Congestión)
+
+    Funcionamiento: Una vez que la ventana de congestión alcanza un umbral específico (el umbral de congestión), el algoritmo de Congestion Avoidance toma el control. A partir de este punto, el aumento del tamaño de la ventana de congestión es más conservador. En lugar de duplicar la ventana cada RTT, se incrementa en un MSS por cada RTT, resultando en un crecimiento lineal. Este crecimiento más lento ayuda a evitar la saturación de la red.
+    Objetivo: El principal objetivo es mantener el flujo de datos en un nivel sostenible para evitar la congestión, aumentando gradualmente el tamaño de la ventana de congestión mientras se monitoriza el rendimiento de la red.
+
+Fast Retransmit (Retransmisión Rápida)
+
+    Funcionamiento: Fast Retransmit es un mecanismo que mejora la eficiencia de la red al reducir el tiempo necesario para recuperarse de la pérdida de paquetes. Cuando un emisor recibe tres acuses de recibo duplicados (tres ACKs para el mismo segmento de datos), asume que un segmento se ha perdido y lo retransmite inmediatamente sin esperar a que expire el temporizador de retransmisión.
+    Objetivo: Este mecanismo está diseñado para responder rápidamente a la pérdida de paquetes, una señal común de congestión en la red, minimizando así el impacto negativo en el rendimiento.
+
+Fast Recovery (Recuperación Rápida)
+
+    Funcionamiento: Fast Recovery trabaja en conjunto con Fast Retransmit. Una vez que se retransmite el paquete perdido, en lugar de reducir drásticamente la ventana de congestión y comenzar desde Slow Start, TCP entra en un estado de recuperación rápida. En este estado, la ventana de congestión se reduce a la mitad del tamaño que tenía cuando se detectó la pérdida. Luego, por cada ACK duplicado recibido, el tamaño de la ventana de congestión se incrementa en un MSS, hasta que todos los datos pendientes son reconocidos.
+    Objetivo: El objetivo de Fast Recovery es reanudar rápidamente una tasa de transferencia efectiva después de una pérdida de paquetes, evitando el proceso más lento de Slow Start y aprovechando la información obtenida de los ACKs duplicados para ajustar el tamaño de la ventana.
+
+En resumen, estos cuatro mecanismos son fundamentales para el eficiente control de congestión en TCP. El Slow Start permite a TCP iniciar la transmisión de datos de manera conservadora, aumentando exponencialmente el tamaño de la ventana hasta encontrar un límite sostenible. La Evitación de Congestión mantiene el crecimiento de la ventana en un ritmo lineal para evitar la saturación de la red. Fast Retransmit y Fast Recovery trabajan juntos para responder rápidamente a la pérdida de paquetes, permitiendo a TCP recuperar su tasa de transmisión de manera eficiente y minimizar la interrupción en la transferencia de datos.
+Algoritmos Avanzados de Control de Congestión
+
+Los algoritmos avanzados de control de congestión en TCP representan una evolución en la forma en que TCP gestiona la congestión y la pérdida de paquetes. Estos algoritmos incluyen Tahoe, Reno, NewReno, CUBIC y BBR, cada uno con características únicas adaptadas a diferentes escenarios de red.
+Tahoe, Reno, y NewReno: Evolución y Diferencias en la Respuesta a la Pérdida de Paquetes
+
+    Tahoe: Este fue uno de los primeros algoritmos en implementar los mecanismos de Fast Retransmit y Fast Recovery. En Tahoe, cuando se detecta una pérdida de paquetes (a través de tres ACKs duplicados o un timeout), la ventana de congestión se reduce a 1 MSS, y el algoritmo entra en Slow Start. Aunque eficaz en su época, Tahoe puede ser demasiado conservador, ya que reinicia el proceso de Slow Start tras cada pérdida detectada.
+    Reno: Representa una mejora sobre Tahoe. Al igual que Tahoe, utiliza Fast Retransmit, pero difiere en su manejo de Fast Recovery. En Reno, cuando se detecta una pérdida de paquetes por ACKs duplicados, la ventana de congestión se reduce a la mitad, y no se reinicia completamente como en Tahoe. Esto permite una recuperación más rápida, ya que el algoritmo entra en Congestion Avoidance en lugar de Slow Start.
+    NewReno: Mejora aún más el proceso de Fast Recovery. A diferencia de Reno, que solo puede recuperarse de una única pérdida de paquetes durante Fast Recovery, NewReno puede manejar múltiples pérdidas de paquetes. Si se detectan más pérdidas después de entrar en Fast Recovery, NewReno puede retransmitir los paquetes perdidos sin necesidad de salir de este modo, lo que mejora la eficiencia en situaciones con múltiples pérdidas de paquetes.
+
+CUBIC: Algoritmo Utilizado por Linux, Adaptación en Función de la Latencia de la Red
+CUBIC:Es el algoritmo de control de congestión predeterminado en muchas variantes de Linux.
+
+CUBIC es diferente de los algoritmos basados en AIMD (Additive Increase/Multiplicative Decrease) como Tahoe, Reno y NewReno. Utiliza una función cúbica para aumentar la ventana de congestión, lo que permite un escalado más rápido de la ventana en redes con grandes capacidades de ancho de banda y alta latencia (redes de larga distancia). CUBIC es menos sensible a la pérdida de paquetes y más a los cambios en el retardo, lo que lo hace adecuado para redes modernas de alta capacidad.
+BBR (Bottleneck Bandwidth and Round-trip Propagation Time): Enfoque en el Ancho de Banda y el Tiempo de Ida y Vuelta
+
+BBR (Bottleneck Bandwidth and RTT): Desarrollado por Google, BBR es un algoritmo de control de congestión que se centra en maximizar la utilización del ancho de banda disponible y minimizar la latencia. BBR no se basa en la detección de pérdidas para ajustar la ventana de congestión. En su lugar, estima el ancho de banda del cuello de botella y el RTT mínimo para determinar el ritmo óptimo de envío de paquetes. Este enfoque permite que BBR gestione eficazmente la congestión, incluso en redes con altas tasas de pérdida de paquetes, ofreciendo mejoras significativas en el rendimiento en comparación con los algoritmos basados en pérdidas.
+
+En resumen, estos algoritmos avanzados de control de congestión representan diferentes enfoques y estrategias para optimizar el rendimiento de la transmisión de datos en TCP. Tahoe, Reno, y NewReno se centran en mejorar la respuesta a la pérdida de paquetes, mientras que CUBIC y BBR se adaptan mejor a las redes modernas de alta capacidad, ofreciendo soluciones más eficientes para el control de la congestión en diversos entornos de red.
+Impacto del Control de Congestión en Diferentes Tipos de Red
+
+El control de congestión en TCP desempeña un papel vital en la gestión del tráfico de datos en diferentes tipos de redes. La eficacia y necesidad de los mecanismos de control de congestión pueden variar significativamente dependiendo de las características específicas de cada red, como la latencia, el ancho de banda disponible, y la probabilidad de pérdida de paquetes. Esto es particularmente evidente al comparar Redes de Área Local (LAN) con Redes de Área Amplia (WAN) y Redes Móviles.
+Redes LAN vs. WAN: Cómo Varía el Control de Congestión
+
+    Redes LAN:
+        Características: Las LAN generalmente tienen baja latencia y alta capacidad de ancho de banda. La congestión es menos frecuente en las LAN debido a su corta distancia y a su infraestructura de red, que a menudo es de alta calidad y bien mantenida.
+        Impacto del Control de Congestión: En las LAN, los algoritmos de control de congestión de TCP pueden no ser tan críticos o necesarios como en otros entornos. La baja latencia y el alto ancho de banda hacen que la red sea menos susceptible a la congestión, por lo que los mecanismos como Slow Start y Congestion Avoidance pueden no tener un impacto significativo en el rendimiento general.
+    Redes WAN:
+        Características: Las WAN, en contraste, se caracterizan por tener mayor latencia y un ancho de banda más variable. Estas redes abarcan distancias más largas y pueden incluir enlaces con capacidades de ancho de banda muy diferentes.
+        Impacto del Control de Congestión: En las WAN, los algoritmos de control de congestión son fundamentales para mantener la estabilidad y eficiencia de la red. La variabilidad en la latencia y el ancho de banda hace que sea esencial un ajuste cuidadoso de la tasa de envío de datos para evitar la sobrecarga de los enlaces. Los mecanismos de control de congestión de TCP, como Fast Retransmit y Fast Recovery, son clave para responder rápidamente a la congestión y mantener un flujo de datos constante.
+
+Redes Móviles: Desafíos Únicos y Adaptaciones en TCP
+
+    Desafíos en Redes Móviles:
+        Variabilidad en la Conexión: Las redes móviles enfrentan desafíos únicos debido a su naturaleza inalámbrica, como variabilidad en la calidad de la señal, cambios frecuentes en las condiciones de la red y tasas de error más altas.
+        Cambios de Red y Movilidad: Los usuarios en redes móviles pueden cambiar entre diferentes tipos de redes (como pasar de 4G a Wi-Fi), lo que puede resultar en fluctuaciones significativas en el rendimiento y la disponibilidad de la red.
+        Latencia y Pérdida de Paquetes: La latencia puede variar significativamente, y la pérdida de paquetes es más común, lo que puede ser malinterpretado por los algoritmos de control de congestión como señales de congestión de red.
+    Adaptaciones en TCP para Redes Móviles:
+        Algoritmos de Control de Congestión Adaptativos: Para abordar estos desafíos, se han desarrollado variantes de TCP específicas para entornos móviles, como TCP Vegas, que utiliza medidas de retardo para detectar y controlar la congestión, y TCP Westwood, que ajusta el tamaño de la ventana de congestión basándose en la estimación del ancho de banda disponible.
+        Mejoras en la Detección de Congestión: Estas variantes mejoran la forma en que TCP interpreta la pérdida de paquetes y los cambios en la latencia, diferenciando mejor entre la congestión real y las características inherentes de las redes móviles.
+        Optimizaciones para Movilidad: Además, se han realizado esfuerzos para mejorar la capacidad de TCP para manejar cambios en la conectividad y movilidad, como en MPTCP (Multipath TCP), que permite a TCP usar múltiples rutas para enviar y recibir datos, aumentando la robustez y eficiencia en entornos móviles.
+
+En conclusión, el control de congestión en TCP varía considerablemente
+Herramientas y Técnicas para la Gestión del Control de Congestión en TCP
+
+La gestión eficaz del control de congestión en TCP es crucial para asegurar un rendimiento óptimo de la red. Esto incluye tanto el monitoreo continuo de la red para detectar signos de congestión como la configuración adecuada de los parámetros de control de congestión en los sistemas operativos. A continuación, se detallan algunas herramientas y técnicas clave en estas áreas.
+Software y Herramientas para Monitorizar la Congestión de la Red
+
+    Wireshark: Esta es una herramienta de análisis de protocolos de red que permite a los administradores capturar y examinar paquetes de datos en tiempo real. Puede ser utilizada para identificar patrones de congestión, como retransmisiones frecuentes y cambios en el tamaño de la ventana de congestión.
+    NetFlow y sFlow: Estas tecnologías proporcionan información valiosa sobre los patrones de tráfico de la red, lo que ayuda a identificar la congestión. Herramientas basadas en NetFlow y sFlow pueden mostrar estadísticas detalladas sobre el tráfico y el volumen por interfaz, lo que es útil para detectar cuellos de botella.
+    LibreNMS, Nagios o Zabbix: Estos sistemas de monitorización de red ofrecen capacidades para rastrear la salud de la red y pueden ser configurados para alertar sobre condiciones que pueden indicar congestión, como el uso excesivo del ancho de banda o altos tiempos de respuesta.
+    Iperf/Jperf: Estas herramientas son utilizadas para medir el ancho de banda máximo de la red y pueden ayudar a determinar el impacto del control de congestión en el rendimiento de la red.
+
+Configuración del Control de Congestión en Diferentes Sistemas Operativos
+
+    Windows:
+        Configuración del Registro: En Windows, algunos parámetros de TCP, incluyendo aquellos relacionados con el control de congestión, pueden ser ajustados a través del Editor del Registro. Esto permite a los administradores optimizar el rendimiento del TCP según las necesidades específicas de su red.
+        PowerShell: Otra herramienta para ajustar la configuración de TCP en Windows es PowerShell, que ofrece comandos para modificar ajustes relacionados con el control de congestión.
+    Linux:
+        sysctl: Linux proporciona una interfaz sysctl para ajustar los parámetros del kernel en tiempo de ejecución. Los administradores pueden usar esta interfaz para cambiar los algoritmos de control de congestión y ajustar parámetros como el tamaño de la ventana de congestión y el comportamiento de retransmisión.
+        /proc Interface: Algunas configuraciones de TCP también pueden ser ajustadas mediante la interfaz /proc, que permite a los usuarios modificar en tiempo real las configuraciones del kernel relacionadas con la red.
+    macOS:
+        Configuración del Sistema: Similar a Linux y Windows, macOS permite a los usuarios ajustar la configuración de TCP, aunque las opciones pueden ser más limitadas. La configuración se puede realizar a través de la línea de comandos o herramientas de terceros.
+
+En resumen, una combinación de herramientas de monitoreo y técnicas de configuración adecuadas es esencial para una gestión efectiva del control de congestión en TCP. Estas herramientas y técnicas permiten a los administradores de red identificar y responder a la congestión, optimizando así el rendimiento de la red y asegurando una entrega de datos eficiente y fiable.
+Casos de Estudio y Aplicaciones Prácticas
+
+El control de congestión de TCP es un aspecto fundamental de la gestión de redes, vital para asegurar la estabilidad y eficiencia de las comunicaciones de datos. A continuación, exploraremos casos de estudio donde este control ha sido crucial y ejemplos prácticos de cómo la implementación y ajuste de TCP puede mejorar significativamente el rendimiento de la red.
+Análisis de Casos donde el Control de Congestión de TCP ha sido Crucial
+
+    Congestión en Redes de Datos Corporativas:
+        Contexto: Las redes corporativas suelen experimentar un alto volumen de tráfico de datos, especialmente durante las horas pico.
+        Problema: Sin un control de congestión eficaz, estas redes pueden experimentar una degradación significativa del rendimiento, con largos tiempos de respuesta y pérdida de paquetes.
+        Solución: La implementación de algoritmos de control de congestión avanzados, como CUBIC o BBR, puede ayudar a gestionar la carga de tráfico de manera más eficiente, reduciendo la congestión y mejorando la experiencia del usuario final.
+    Gestión de Tráfico en Proveedores de Servicios de Internet (ISP):
+        Contexto: Los ISP manejan una gran cantidad de datos que atraviesan una variedad de redes.
+        Problema: El control de congestión inadecuado puede llevar a cuellos de botella, afectando a múltiples clientes y servicios.
+        Solución: La implementación de estrategias de control de congestión adaptativas, junto con un monitoreo constante del tráfico, permite a los ISP ajustar dinámicamente los parámetros de red para mantener un rendimiento óptimo.
+    Streaming de Video y Servicios OTT:
+        Contexto: Los servicios de streaming de video, como Netflix, dependen de una transferencia de datos constante y eficiente.
+        Problema: La variabilidad en la calidad de la red puede provocar bufferings o interrupciones en el streaming.
+        Solución: Al utilizar técnicas de control de congestión de TCP, estos servicios pueden adaptar la tasa de transmisión de datos según las condiciones de la red, minimizando las interrupciones y mejorando la calidad de transmisión.
+
+Ejemplos Prácticos en la Implementación de Ajustes de TCP para Mejorar el Rendimiento
+
+    Optimización de Redes de Centros de Datos:
+        Aplicación: En centros de datos, donde los servidores manejan solicitudes masivas, el ajuste de TCP puede incluir la ampliación de la ventana de congestión y la implementación de algoritmos de control de congestión personalizados para manejar grandes volúmenes de datos.
+        Beneficio: Esto resulta en un uso más eficiente de la capacidad de red disponible y una reducción en la latencia de las aplicaciones.
+    Mejora del Rendimiento en Redes con Alta Latencia:
+        Aplicación: En redes con alta latencia, como las conexiones satelitales, ajustar los parámetros de TCP para tener en cuenta la mayor RTT (tiempo de ida y vuelta) puede mejorar significativamente el rendimiento.
+        Beneficio: La optimización de TCP en estos entornos puede reducir el impacto de la latencia y mejorar la eficiencia de la transmisión de datos.
+    Configuración de TCP en Entornos Móviles:
+        Aplicación: En redes móviles, donde la calidad de la conexión puede cambiar rápidamente, se pueden implementar variantes de TCP adaptativas como TCP Vegas o Westwood.
+        Beneficio: Estas variantes están diseñadas para responder mejor a las fluctuaciones en la calidad de la conexión, mejorando la estabilidad y el rendimiento de las aplicaciones móviles.
+
+En resumen, los casos de estudio y aplicaciones prácticas demuestran la importancia crítica del control de congestión de TCP en una variedad de entornos de red. Desde redes corporativas hasta proveedores de servicios de Internet y servicios de streaming, una gestión efectiva de la congestión de TCP es clave para mantener un rendimiento de red óptimo y proporcionar una experiencia de usuario final satisfactoria. La implementación de ajustes y algoritmos adecuados de TCP según las necesidades específicas.
+Desafíos y Futuro del Control de Congestión de TCP
+
+El control de congestión en TCP ha sido un área de investigación y desarrollo constante desde la creación del protocolo. Aunque los mecanismos actuales han demostrado ser eficaces en una amplia gama de escenarios de red, todavía enfrentan limitaciones significativas, especialmente en entornos de red en evolución. El futuro del control de congestión en TCP implica superar estos desafíos y adaptarse a las cambiantes demandas de las redes modernas.
+Limitaciones Actuales del Control de Congestión en TCP
+
+    Ineficiencia en Redes de Alta Velocidad y de Larga Distancia: Los algoritmos de control de congestión tradicionales pueden no ser eficientes en redes con grandes capacidades de ancho de banda y alta latencia (como enlaces transcontinentales), a menudo resultando en un uso subóptimo del ancho de banda disponible.
+    Respuesta a la Pérdida de Paquetes vs. Calidad del Enlace: TCP generalmente interpreta la pérdida de paquetes como un signo de congestión. Sin embargo, en redes inalámbricas y móviles, la pérdida de paquetes a menudo se debe a problemas de calidad del enlace, no a la congestión, lo que lleva a una disminución innecesaria del rendimiento.
+    Variabilidad en Redes Móviles y Inalámbricas: Las redes móviles presentan desafíos adicionales debido a su naturaleza inestable y variabilidad en la calidad de la conexión, lo que dificulta la efectividad de los mecanismos de control de congestión tradicionales.
+    Interacción con Otros Protocolos y Tecnologías: A medida que nuevas tecnologías y protocolos emergen, la interacción entre estos y el control de congestión de TCP puede ser compleja y a menudo impredecible, afectando la eficiencia general del control de congestión.
+
+Investigaciones y Desarrollos Futuros en la Gestión de la Congestión
+
+    Algoritmos de Control de Congestión Inteligentes: El desarrollo de algoritmos de control de congestión basados en aprendizaje automático e inteligencia artificial promete una mayor eficiencia. Estos algoritmos podrían adaptarse dinámicamente a las condiciones cambiantes de la red, mejorando el rendimiento en diversos escenarios de red.
+    Optimización para Redes Inalámbricas y Móviles: La investigación se está centrando en mejorar el control de congestión en entornos móviles y inalámbricos, con algoritmos que pueden diferenciar mejor entre la pérdida de paquetes debido a la congestión y la pérdida de paquetes debido a problemas de señal.
+    Integración con Tecnologías Emergentes: A medida que nuevas tecnologías como 5G y IoT se vuelven más prevalentes, se necesitan métodos de control de congestión que puedan operar eficientemente en estos entornos altamente dinámicos y heterogéneos.
+    Multipath TCP (MPTCP): MPTCP, que permite que las conexiones TCP utilicen múltiples rutas para enviar y recibir datos, se está explorando como una forma de mejorar la robustez y eficiencia de TCP. Esto es particularmente relevante en dispositivos móviles y en redes con múltiples interfaces de red.
+    Control de Congestión Basado en la Retroalimentación de la Red: Explorar métodos donde la red misma proporciona retroalimentación al emisor sobre el estado de congestión, permitiendo ajustes más precisos y oportunos en el tamaño de la ventana de congestión.
+    Estándares y Protocolos Más Flexibles: La evolución de TCP hacia un protocolo más modular y adaptable, donde los algoritmos de control de congestión pueden ser más fácilmente actualizados y optimizados para diferentes escenarios de red.
+
+En resumen, los desafíos actuales del control de congestión en TCP están impulsando una investigación significativa y el desarrollo de nuevas tecnologías y enfoques. El futuro del control de congestión en TCP se orienta hacia una mayor inteligencia, adaptabilidad y eficiencia, con el objetivo de satisfacer las necesidades de las redes cada vez más rápidas, complejas y diversas de hoy en día.
+Control de congestión en linux con sysctl
+
+Volviendo al ejemplo de Eva:
+
+    sysctl -w net.ipv4.tcp_sack=0
+    sysctl -w net.ipv4.tcp_timestamps=0
+    sysctl -w net.ipv4.tcp_window_scaling=0
+    echo «4096 8192 8192» > /proc/sys/net/ipv4/tcp_rmem
+    ifconfig eth0 mtu 1040
+    tc qdisc add dev eth0 root netem loss 25%
+
+La secuencia de comandos que Eva nos muestra incluye una serie de comandos en Linux que ajustan varios parámetros del kernel relacionados con el protocolo TCP (Protocolo de Control de Transmisión) y la configuración de la interfaz de red. Estos comandos afectan cómo se maneja el tráfico de red en el sistema. Aquí está una explicación detallada de cada comando:
+
+    sysctl -w net.ipv4.tcp_sack=0
+        sysctl es una herramienta utilizada para modificar parámetros del kernel en tiempo de ejecución.
+        net.ipv4.tcp_sack se refiere a la opción de Acuse de Recibo Selectivo (Selective Acknowledgment – SACK) en TCP. Esta opción permite al receptor informar al emisor exactamente qué segmentos se han recibido con éxito, lo que permite retransmitir eficientemente solo los segmentos perdidos.
+        Al establecer tcp_sack en 0, se deshabilita esta característica. Esto puede ser útil en ciertos escenarios de red donde SACK puede no ser soportado o puede causar problemas, aunque generalmente es mejor mantenerlo habilitado para mejorar la eficiencia en la recuperación de errores.
+    sysctl -w net.ipv4.tcp_timestamps=0
+        net.ipv4.tcp_timestamps es una opción que controla el uso de marcas de tiempo en los paquetes TCP. Las marcas de tiempo pueden ser utilizadas para calcular el tiempo de ida y vuelta de los paquetes y ayudar a proteger contra envoltorios de números de secuencia en conexiones de larga duración.
+        Al configurar tcp_timestamps en 0, se desactivan las marcas de tiempo en TCP. Esto podría ser útil en situaciones donde se sospecha que las marcas de tiempo están causando incompatibilidades o problemas de rendimiento, aunque generalmente es preferible mantenerlas activadas para una mejor estimación del RTT (Round-Trip Time) y seguridad.
+    sysctl -w net.ipv4.tcp_window_scaling=0
+        net.ipv4.tcp_window_scaling es una opción para habilitar el escalado de la ventana TCP. Esta característica permite el uso de ventanas de recepción más grandes, lo que es crucial para un alto rendimiento en conexiones de alta velocidad o con alta latencia.
+        Al establecer tcp_window_scaling en 0, se desactiva el escalado de la ventana. Esto limita el tamaño máximo de la ventana de recepción a 65,535 bytes, lo que puede reducir significativamente el rendimiento en ciertos tipos de redes.
+    echo "4096 8192 8192" > /proc/sys/net/ipv4/tcp_rmem
+        Este comando ajusta la cantidad de memoria que TCP utiliza para el buffer de recepción. Los valores representan el mínimo, el valor por defecto, y el máximo tamaño del buffer, respectivamente, en bytes.
+        Establecer estos valores puede ser útil para optimizar el uso de la memoria en función de las necesidades específicas de la red y del sistema. En este caso, se está configurando el tamaño predeterminado y máximo a 8192 bytes.
+    ifconfig eth0 mtu 1040
+        Este comando ajusta la MTU (Unidad Máxima de Transmisión) de la interfaz de red eth0 a 1040 bytes.
+        La MTU es el tamaño máximo de un paquete que puede ser transmitido a través de una interfaz. Reducir la MTU puede ser útil en redes con problemas de paquetes grandes o para reducir la fragmentación en redes con una MTU más pequeña.
+    tc qdisc add dev eth0 root netem loss 25%
+        tc (Traffic Control) es una herramienta utilizada para controlar la política de transmisión de paquetes en Linux.
+        Este comando específicamente añade una disciplina de cola (qdisc) a la interfaz eth0 para simular un 25% de pérdida de paquetes. Esto se hace a menudo con fines de pruebas o simulaciones para entender cómo las aplicaciones y los protocolos responden a tales condiciones de red.
+
+Cada uno de estos comandos tiene aplicaciones específicas y debe ser utilizado con cuidado, ya que pueden tener un impacto significativo en el rendimiento y la fiabilidad de la red. Estos ajustes son a menudo específicos del escenario y deben ser probados y validados en un entorno controlado antes de ser implementados en un entorno de producción.
+Preguntas y respuestas
+
+    ¿Qué es el control de congestión en TCP?
+        Es un mecanismo para regular la cantidad de datos enviados a la red sin confirmación, para evitar la sobrecarga de la red.
+    ¿Cuál es el principal objetivo del control de congestión en TCP?
+        Evitar la sobrecarga de la red, que puede ocurrir cuando se envían demasiados paquetes en un corto período.
+    ¿Qué provoca la congestión en las redes?
+        La sobrecarga de datos en los nodos de la red como routers y switches, aumentando el tiempo de retardo y la probabilidad de pérdida de paquetes.
+    ¿Qué problemas puede causar la congestión en una red?
+        Pérdida de paquetes, alta latencia, fluctuaciones en el throughput y asignación injusta de recursos.
+    ¿Cómo difieren el control de congestión y el control de flujo en TCP?
+        El control de flujo se enfoca en la relación emisor-receptor, mientras que el control de congestión se ocupa de la relación entre el emisor y la red.
+    ¿Qué es Slow Start en TCP?
+        Es un algoritmo que inicia con una ventana de congestión pequeña y la incrementa exponencialmente por cada ACK recibido.
+    ¿Cuál es el propósito de Congestion Avoidance?
+        Mantener el flujo de datos en un nivel sostenible para evitar la congestión, incrementando gradualmente el tamaño de la ventana de congestión.
+    ¿Qué hace Fast Retransmit en TCP?
+        Retransmite un segmento perdido inmediatamente al recibir tres ACKs duplicados para el mismo segmento.
+    ¿Cómo funciona Fast Recovery en TCP?
+        Reduce la ventana de congestión a la mitad tras una pérdida de paquetes, incrementando luego el tamaño de la ventana por cada ACK duplicado recibido.
+    ¿Qué son Tahoe, Reno y NewReno en TCP?
+        Son algoritmos de control de congestión que evolucionaron para mejorar la respuesta a la pérdida de paquetes.
+    ¿Cómo se diferencia CUBIC de otros algoritmos de control de congestión?
+        Utiliza una función cúbica para aumentar la ventana de congestión, adecuada para redes con gran capacidad de ancho de banda y alta latencia.
+    ¿Qué hace especial a BBR en el control de congestión?
+        Se centra en maximizar el uso del ancho de banda y minimizar la latencia, sin basarse en la detección de pérdidas.
+    ¿Cómo afecta el control de congestión a las redes LAN en comparación con las WAN?
+        En las LAN, donde la congestión es menos frecuente, los algoritmos de control de congestión pueden no ser tan críticos como en las WAN.
+    ¿Qué desafíos presentan las redes móviles para el control de congestión de TCP?
+        La variabilidad en la calidad de la señal, cambios frecuentes en las condiciones de la red y tasas de error más altas.
+    ¿Qué herramientas se utilizan para monitorizar la congestión de la red?
+        Herramientas como Wireshark, NetFlow, sFlow, LibreNMS, Nagios, Zabbix e Iperf/Jperf.
+    ¿Cómo se puede ajustar el control de congestión en Windows y Linux?
+        En Windows, a través del Editor del Registro y PowerShell; en Linux, usando sysctl y la interfaz /proc.
+    ¿Qué aplicaciones prácticas tiene el control de congestión de TCP en centros de datos?
+        Optimización de la gestión de tráfico y reducción de la latencia en las aplicaciones.
+    ¿Qué retos actuales enfrenta el control de congestión en TCP?
+        Ineficiencias en redes de alta velocidad y de larga distancia, y la interpretación de la pérdida de paquetes en redes inalámbricas y móviles.
+    ¿Qué avances se están desarrollando para el futuro del control de congestión en TCP?
+        Algoritmos inteligentes basados en IA, optimización para redes inalámbricas y móviles, y adaptación a nuevas tecnologías como 5G y IoT.
+    ¿Qué comando se utiliza en Linux para desactivar el escalado de la ventana TCP?
+        sysctl -w net.ipv4.tcp_window_scaling=0.
+        
+        Name
+
+recv, recvfrom, recvmsg - receive a message from a socket
+Synopsis
+
+#include <sys/types.h>
+#include <sys/socket.h>
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                 struct sockaddr *src_addr, socklen_t *addrlen);
+
+ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
+
+Description
+
+The recvfrom() and recvmsg() calls are used to receive messages from a socket, and may be used to receive data on a socket whether or not it is connection-oriented.
+
+If src_addr is not NULL, and the underlying protocol provides the source address, this source address is filled in. When src_addr is NULL, nothing is filled in; in this case, addrlen is not used, and should also be NULL. The argument addrlen is a value-result argument, which the caller should initialize before the call to the size of the buffer associated with src_addr, and modified on return to indicate the actual size of the source address. The returned address is truncated if the buffer provided is too small; in this case, addrlen will return a value greater than was supplied to the call.
+
+The recv() call is normally used only on a connected socket (see connect(2)) and is identical to recvfrom() with a NULL src_addr argument.
+
+All three routines return the length of the message on successful completion. If a message is too long to fit in the supplied buffer, excess bytes may be discarded depending on the type of socket the message is received from.
+
+If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK. The receive calls normally return any data available, up to the requested amount, rather than waiting for receipt of the full amount requested.
+
+The select(2) or poll(2) call may be used to determine when more data arrives.
+
+The flags argument to a recv() call is formed by ORing one or more of the following values:
+
+MSG_CMSG_CLOEXEC (recvmsg() only; since Linux 2.6.23)
+    Set the close-on-exec flag for the file descriptor received via a UNIX domain file descriptor using the SCM_RIGHTS operation (described in unix(7)). This flag is useful for the same reasons as the O_CLOEXEC flag of open(2). 
+MSG_DONTWAIT (since Linux 2.2)
+    Enables nonblocking operation; if the operation would block, the call fails with the error EAGAIN or EWOULDBLOCK (this can also be enabled using the O_NONBLOCK flag with the F_SETFL fcntl(2)). 
+MSG_ERRQUEUE (since Linux 2.2)
+    This flag specifies that queued errors should be received from the socket error queue. The error is passed in an ancillary message with a type dependent on the protocol (for IPv4 IP_RECVERR). The user should supply a buffer of sufficient size. See cmsg(3) and ip(7) for more information. The payload of the original packet that caused the error is passed as normal data via msg_iovec. The original destination address of the datagram that caused the error is supplied via msg_name. 
+    For local errors, no address is passed (this can be checked with the cmsg_len member of the cmsghdr). For error receives, the MSG_ERRQUEUE is set in the msghdr. After an error has been passed, the pending socket error is regenerated based on the next queued error and will be passed on the next socket operation.
+
+    The error is supplied in a sock_extended_err structure: 
+
+    #define SO_EE_ORIGIN_NONE    0
+    #define SO_EE_ORIGIN_LOCAL   1
+    #define SO_EE_ORIGIN_ICMP    2
+    #define SO_EE_ORIGIN_ICMP6   3
+
+    struct sock_extended_err
+    {
+        uint32_t ee_errno;   /* error number */
+        uint8_t  ee_origin;  /* where the error originated */
+        uint8_t  ee_type;    /* type */
+        uint8_t  ee_code;    /* code */
+        uint8_t  ee_pad;     /* padding */
+        uint32_t ee_info;    /* additional information */
+        uint32_t ee_data;    /* other data */
+        /* More data may follow */
+    };
+
+    struct sockaddr *SO_EE_OFFENDER(struct sock_extended_err *);
+
+    ee_errno contains the errno number of the queued error. ee_origin is the origin code of where the error originated. The other fields are protocol-specific. The macro SOCK_EE_OFFENDER returns a pointer to the address of the network object where the error originated from given a pointer to the ancillary message. If this address is not known, the sa_family member of the sockaddr contains AF_UNSPEC and the other fields of the sockaddr are undefined. The payload of the packet that caused the error is passed as normal data.
+
+    For local errors, no address is passed (this can be checked with the cmsg_len member of the cmsghdr). For error receives, the MSG_ERRQUEUE is set in the msghdr. After an error has been passed, the pending socket error is regenerated based on the next queued error and will be passed on the next socket operation. 
+MSG_OOB
+    This flag requests receipt of out-of-band data that would not be received in the normal data stream. Some protocols place expedited data at the head of the normal data queue, and thus this flag cannot be used with such protocols. 
+MSG_PEEK
+    This flag causes the receive operation to return data from the beginning of the receive queue without removing that data from the queue. Thus, a subsequent receive call will return the same data. 
+MSG_TRUNC (since Linux 2.2)
+    For raw (AF_PACKET), Internet datagram (since Linux 2.4.27/2.6.8), netlink (since Linux 2.6.22) and UNIX datagram (since Linux 3.4) sockets: return the real length of the packet or datagram, even when it was longer than the passed buffer. Not implemented for UNIX domain (unix(7)) sockets.
+
+    For use with Internet stream sockets, see tcp(7). 
+MSG_WAITALL (since Linux 2.2)
+    This flag requests that the operation block until the full request is satisfied. However, the call may still return less data than requested if a signal is caught, an error or disconnect occurs, or the next data to be received is of a different type than that returned. 
+The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
+
+    struct iovec {                    /* Scatter/gather array items */
+        void  *iov_base;              /* Starting address */
+        size_t iov_len;               /* Number of bytes to transfer */
+    };
+
+    struct msghdr {
+        void         *msg_name;       /* optional address */
+        socklen_t     msg_namelen;    /* size of address */
+        struct iovec *msg_iov;        /* scatter/gather array */
+        size_t        msg_iovlen;     /* # elements in msg_iov */
+        void         *msg_control;    /* ancillary data, see below */
+        size_t        msg_controllen; /* ancillary data buffer len */
+        int           msg_flags;      /* flags on received message */
+    };
+
+Here msg_name and msg_namelen specify the source address if the socket is unconnected; msg_name may be given as a NULL pointer if no names are desired or required. The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
+
+The messages are of the form:
+
+    struct cmsghdr {
+        socklen_t     cmsg_len;     /* data byte count, including hdr */
+        int           cmsg_level;   /* originating protocol */
+        int           cmsg_type;    /* protocol-specific type */
+    /* followed by
+        unsigned char cmsg_data[]; */
+    };
+
+Ancillary data should only be accessed by the macros defined in cmsg(3).
+
+As an example, Linux uses this ancillary data mechanism to pass extended errors, IP options, or file descriptors over UNIX domain sockets.
+
+The msg_flags field in the msghdr is set on return of recvmsg(). It can contain several flags:
+MSG_EOR
+    indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET). 
+MSG_TRUNC
+    indicates that the trailing portion of a datagram was discarded because the datagram was larger than the buffer supplied. 
+MSG_CTRUNC
+    indicates that some control data were discarded due to lack of space in the buffer for ancillary data. 
+MSG_OOB
+    is returned to indicate that expedited or out-of-band data were received. 
+MSG_ERRQUEUE
+    indicates that no data was received but an extended error from the socket error queue. 
+
+Return Value
+
+These calls return the number of bytes received, or -1 if an error occurred. The return value will be 0 when the peer has performed an orderly shutdown.
+Errors
+
+These are some standard errors generated by the socket layer. Additional errors may be generated and returned from the underlying protocol modules; see their manual pages.
+
+EAGAIN or EWOULDBLOCK
+    The socket is marked nonblocking and the receive operation would block, or a receive timeout had been set and the timeout expired before data was received. POSIX.1-2001 allows either error to be returned for this case, and does not require these constants to have the same value, so a portable application should check for both possibilities. 
+EBADF
+
+The argument sockfd is an invalid descriptor.
+ECONNREFUSED
+    A remote host refused to allow the network connection (typically because it is not running the requested service). 
+EFAULT
+
+The receive buffer pointer(s) point outside the process's address space.
+
+EINTR
+
+The receive was interrupted by delivery of a signal before any data were available; see signal(7).
+
+EINVAL
+
+Invalid argument passed.
+
+ENOMEM
+
+Could not allocate memory for recvmsg().
+ENOTCONN
+    The socket is associated with a connection-oriented protocol and has not been connected (see connect(2) and accept(2)). 
+ENOTSOCK
+    The argument sockfd does not refer to a socket. 
+
+Conforming To
+
+4.4BSD (these function calls first appeared in 4.2BSD), POSIX.1-2001.
+
+POSIX.1-2001 only describes the MSG_OOB, MSG_PEEK, and MSG_WAITALL flags.
+Notes
+
+The prototypes given above follow glibc2. The Single UNIX Specification agrees, except that it has return values of type ssize_t (while 4.x BSD and libc4 and libc5 all have int). The flags argument is int in 4.x BSD, but unsigned int in libc4 and libc5. The len argument is int in 4.x BSD, but size_t in libc4 and libc5. The addrlen argument is int * in 4.x BSD, libc4 and libc5. The present socklen_t * was invented by POSIX. See also accept(2).
+
+According to POSIX.1-2001, the msg_controllen field of the msghdr structure should be typed as socklen_t, but glibc currently types it as size_t.
+
+See recvmmsg(2) for information about a Linux-specific system call that can be used to receive multiple datagrams in a single call. 
+
+NAME
+
+    setsockopt - set the socket options
+
+SYNOPSIS
+
+    #include <sys/socket.h>
+
+    int setsockopt(int socket, int level, int option_name,
+           const void *option_value, socklen_t option_len);
+
+DESCRIPTION
+
+    The setsockopt() function shall set the option specified by the option_name argument, at the protocol level specified by the level argument, to the value pointed to by the option_value argument for the socket associated with the file descriptor specified by the socket argument.
+
+    The level argument specifies the protocol level at which the option resides. To set options at the socket level, specify the level argument as SOL_SOCKET. To set options at other levels, supply the appropriate level identifier for the protocol controlling the option. For example, to indicate that an option is interpreted by the TCP (Transport Control Protocol), set level to IPPROTO_TCP as defined in the <netinet/in.h> header.
+
+    The option_name argument specifies a single option to set. The option_name argument and any specified options are passed uninterpreted to the appropriate protocol module for interpretations. The <sys/socket.h> header defines the socket-level options. The options are as follows:
+
+    SO_DEBUG
+        Turns on recording of debugging information. This option enables or disables debugging in the underlying protocol modules. This option takes an int value. This is a Boolean option.
+    SO_BROADCAST
+        Permits sending of broadcast messages, if this is supported by the protocol. This option takes an int value. This is a Boolean option.
+    SO_REUSEADDR
+        Specifies that the rules used in validating addresses supplied to bind() should allow reuse of local addresses, if this is supported by the protocol. This option takes an int value. This is a Boolean option.
+    SO_KEEPALIVE
+        Keeps connections active by enabling the periodic transmission of messages, if this is supported by the protocol. This option takes an int value.
+
+        If the connected socket fails to respond to these messages, the connection is broken and threads writing to that socket are notified with a SIGPIPE signal. This is a Boolean option.
+    SO_LINGER
+        Lingers on a close() if data is present. This option controls the action taken when unsent messages queue on a socket and close() is performed. If SO_LINGER is set, the system shall block the calling thread during close() until it can transmit the data or until the time expires. If SO_LINGER is not specified, and close() is issued, the system handles the call in a way that allows the calling thread to continue as quickly as possible. This option takes a linger structure, as defined in the <sys/socket.h> header, to specify the state of the option and linger interval.
+    SO_OOBINLINE
+        Leaves received out-of-band data (data marked urgent) inline. This option takes an int value. This is a Boolean option.
+    SO_SNDBUF
+        Sets send buffer size. This option takes an int value.
+    SO_RCVBUF
+        Sets receive buffer size. This option takes an int value.
+    SO_DONTROUTE
+        Requests that outgoing messages bypass the standard routing facilities. The destination shall be on a directly-connected network, and messages are directed to the appropriate network interface according to the destination address. The effect, if any, of this option depends on what protocol is in use. This option takes an int value. This is a Boolean option.
+    SO_RCVLOWAT
+        Sets the minimum number of bytes to process for socket input operations. The default value for SO_RCVLOWAT is 1. If SO_RCVLOWAT is set to a larger value, blocking receive calls normally wait until they have received the smaller of the low water mark value or the requested amount. (They may return less than the low water mark if an error occurs, a signal is caught, or the type of data next in the receive queue is different from that returned; for example, out-of-band data.) This option takes an int value. Note that not all implementations allow this option to be set.
+    SO_RCVTIMEO
+        Sets the timeout value that specifies the maximum amount of time an input function waits until it completes. It accepts a timeval structure with the number of seconds and microseconds specifying the limit on how long to wait for an input operation to complete. If a receive operation has blocked for this much time without receiving additional data, it shall return with a partial count or errno set to [EAGAIN] or [EWOULDBLOCK] if no data is received. The default for this option is zero, which indicates that a receive operation shall not time out. This option takes a timeval structure. Note that not all implementations allow this option to be set.
+    SO_SNDLOWAT
+        Sets the minimum number of bytes to process for socket output operations. Non-blocking output operations shall process no data if flow control does not allow the smaller of the send low water mark value or the entire request to be processed. This option takes an int value. Note that not all implementations allow this option to be set.
+    SO_SNDTIMEO
+        Sets the timeout value specifying the amount of time that an output function blocks because flow control prevents data from being sent. If a send operation has blocked for this time, it shall return with a partial count or with errno set to [EAGAIN] or [EWOULDBLOCK] if no data is sent. The default for this option is zero, which indicates that a send operation shall not time out. This option stores a timeval structure. Note that not all implementations allow this option to be set.
+
+    For Boolean options, 0 indicates that the option is disabled and 1 indicates that the option is enabled.
+
+    Options at other protocol levels vary in format and name.
+
+RETURN VALUE
+
+    Upon successful completion, setsockopt() shall return 0. Otherwise, -1 shall be returned and errno set to indicate the error.
+
+setsockopt()
+Last Updated: 2023-04-05
+
+The setsockopt() call sets options associated with a socket. It can be called only for sockets in the AF_INET domain. Options can exist at multiple protocol levels; they are always present at the highest socket level.
+
+When manipulating socket options, you must specify the level at which the option resides and the name of the option. To manipulate options at the socket level, the level parameter must be set to SOL_SOCKET, as defined in SOCKET.H. To manipulate options at the TCP level, the level parameter must be set to IPPROTO_TCP, as defined in SOCKET.H. To manipulate options at any other level, such as the IP level, supply the appropriate protocol number for the protocol controlling the option. Currently, the SOL_SOCKET, IPPROTO_TCP, and IPPROTO_IP levels are supported. The getprotobyname() call can be used to return the protocol number for a named protocol.
+
+#include <manifest.h>
+#include <bsdtypes.h>
+#include <socket.h>
+ 
+int setsockopt(int s, int level, int optname, char *optval, int optlen)
+
+Parameter
+    Description
+s
+    The socket descriptor 
+level
+    The level for which the option is being set
+optname
+    The name of a specified socket option. See GETSOCKOPT/SETSOCKOPT command values for the numeric values of optname.
+optval
+    The pointer to option data
+optlen
+    The length of the option data
+
+The optval and optlen parameters are used to pass data used by the particular set command. The optval parameter points to a buffer containing the data needed by the set command. The optlen parameter must be set to the size of the data pointed to by optval.
+All of the socket level options except SO_LINGER expect optval to point to an integer and optlen to be set to the size of an integer. When the integer is nonzero, the option is enabled. For toggle type options, if the integer is nonzero, the option is enabled. If it is 0, the option is disabled. The SO_LINGER option expects optval to point to a linger structure, as defined in SOCKET.H. This structure is defined in the following example:
+
+struct  linger
+{
+        int     l_onoff;                /* option on/off */
+        int     l_linger;               /* linger time */
+};
+
+The l_onoff field is set to 0 if the SO_LINGER option is disabled. A nonzero value enables the option. The l_linger field specifies the amount of time to wait on close. The units of l_linger are seconds.
+The following option is recognized at the TCP level:
+
+Option
+    Description
+TCP_NODELAY
+    Toggles the use of Nagle algorithm (RFC 896) for all data sent over the socket. This option is not supported for AF_IUCV sockets. Under most circumstances, TCP sends data when it is presented from the application.
+    However, when outstanding data has not yet been acknowledged, TCP will defer the transmission of any new data from the application until all of the outstanding data has been acknowledged. The Nagle algorithm enforces this deferral, even in cases where the receiver's window is sufficiently open to accept the new data. For interactive applications, such as ones that send a stream of mouse events which receive no replies, this deferral of transmission might result in significant delays. For these types of applications, disabling Nagle algorithm would improve response time.
+
+    Notes:
+
+        When Nagle algorithm is enabled, TCP will wait to send small amounts of data until the acknowledgment for the previous data is received.
+        When Nagle algorithm is disabled, TCP will send small amounts of data even before the acknowledgment for previous data sent is received.
+
+The following keywords are recognized at the socket level:
+
+Keyword
+    Description
+SO_RCVBUF
+    Sets the size of the data portion of the TCP/IP receive buffer in OPTVAL. The size of the data portion of the receive buffer is protocol-specific. If the requested size exceeds the allowed size, the following situation occurs:
+
+        If the protocol is TCP, a return value of -1 and errno of ENOBUFS is set. The receive buffer size is unchanged.
+
+        For maximum values for the TCP protocol, see the TCPCONFIG TCPRCVBUFRSIZE and TCPMAXRCVBUFSIZE parameters in the z/OS Communications Server: IP Configuration Reference.
+        If the protocol is UDP or RAW, a return value of 0 is returned and the buffer size is set to 65535.
+
+SO_SNDBUF
+    Sets the size of the data portion of the TCP/IP send buffer in OPTVAL. The size of the data portion of the send buffer is protocol-specific. If the requested size exceeds the allowed size, the following situation occurs:
+
+        If the protocol is TCP, a return value of -1 and errno of ENOBUFS is set. The send buffer size for the TCP connection is set to the maximum size. The value of the send buffer size can be retrieved by issuing GETSOCKOPT for SO_SNDBUF.
+
+        For maximum values for the TCP protocol, see the TCPCONFIG TCPSENDBUFRSIZE parameters in the z/OS Communications Server: IP Configuration Reference.
+        If the protocol is UDP or RAW, a return value of 0 is returned and the buffer size is set to 65535.
+
+SO_BROADCAST
+    Toggles the ability to broadcast messages. The default is disabled. If this option is enabled, it allows the application to send broadcast messages over s when the interface specified in the destination supports broadcasting of packets. This option has no meaning for stream sockets. 
+SO_KEEPALIVE
+    Toggles the TCP keep alive mechanism for a stream socket. The default is disabled. When activated, the keep alive mechanism periodically sends a packet on an otherwise idle connection. If the remote TCP does not respond to the packet, or to retransmissions of the packet, the connection is ended with the error ETIMEDOUT.
+SO_LINGER
+    Lingers on close if data is present. The default is disabled. When this option is enabled and there is unsent data present when close() is called, the calling application is blocked during the close() call until the data is transmitted, or the connection has timed out. If this option is disabled, the close() call returns without blocking the caller, and the TCP/IP address space still waits to try to send the data. Although the data transfer is usually successful, it cannot be guaranteed, because the TCP/IP address space waits a finite amount of time while trying to send the data. This option has meaning for stream sockets only.
+SO_OOBINLINE
+    Toggles the reception of out-of-band data. The default is disabled. When this option is enabled, it causes out-of-band data to be placed in the normal data input queue as it is received, making it available to recv(), recvfrom(), and recvmsg() without having to specify the MSG_OOB flag in those calls. When this option is disabled, it causes out-of-band data to be placed in the priority data input queue as it is received, making it available to recv(), recvfrom(), and recvmsg() only by specifying the MSG_OOB flag in those calls. This option has meaning for stream sockets only.
+SO_REUSEADDR
+    Toggles local address reuse. The default is disabled. This alters the normal algorithm used in the bind() call.
+
+    The normal bind() call algorithm allows each internet address and port combination to be bound only once. If the address and port have been bound already, a subsequent bind() will fail and return error EADDRINUSE.
+    After the 'SO_REUSEADDR' option is active, the following situations are supported:
+
+        A server can bind() the same port multiple times as long as every invocation uses a different local IP address and the wildcard address INADDR_ANY is used only one time per port.
+        A server with active client connections can be restarted and can bind to its port without having to close all of the client connections.
+        For datagram sockets, multicasting is supported so multiple bind() calls can be made to the same class D address and port number.
+
+The following options are recognized at the IP level (IPPROTO_IP):
+
+Option
+    Description
+IP_MULTICAST_TTL
+    Sets the IP time to live of outgoing multicast datagrams. The default value is 1 (multicast is available only to the local subnet).
+IP_MULTICAST_LOOP
+    Enables or disables the loopback of outgoing multicast datagrams. The default value is enabled.
+IP_MULTICAST_IF
+    Sets the interface for sending outbound multicast datagrams from the socket application.
+
+    Note: Multicast datagrams can be transmitted only on one interface at a time.
+IP_ADD_MEMBERSHIP
+    Joins a multicast group on a specific interface. An interface has to be specified with this option. Only applications that want to receive multicast datagrams need to join multicast groups.
+IP_DROP_MEMBERSHIP
+    Exits a multicast group.
+
+Return values
+The value 0 indicates success; the value -1 indicates an error. Errno identifies the specific error.
+
+Errno
+    Description
+EBADF
+    The s parameter is not a valid socket descriptor.
+EFAULT
+    Using optval and optlen parameters would result in an attempt to access storage outside the caller address space.
+ENOBUFS
+    No buffer space is available.
+ENOPROTOOPT
+    The optname parameter is unrecognized, or the level parameter is not SOL_SOCKET.
+
+Example
+See getsockopt() to see how the getsockopt() options set is queried.
+
+int rc;
+int s;
+int optval;
+struct linger l;
+int setsockopt(int s, int level, int optname,char *optval, int optlen);
+⋮
+/* I want out of band data in the normal inputqueue */
+optval = 1;
+rc = setsockopt(s, SOL_SOCKET, SO_OOBINLINE, (char *) &optval, sizeof(int));
+ 
+⋮
+/* I want to linger on close */
+l.l_onoff  = 1;
+l.l_linger = 100;
+rc = setsockopt(s, SOL_SOCKET, SO_LINGER, (char *) &l, sizeof(l));

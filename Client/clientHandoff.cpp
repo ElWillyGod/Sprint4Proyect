@@ -1,5 +1,6 @@
 #include "client.h"
 #include <errno.h>
+#include <netinet/tcp.h>
 
 /*
     posibles criterios para el cambio de protocolo:
@@ -12,11 +13,32 @@
     - Microfragmentación en UDP segun el MTU
 
 */
-bool should_switch_protocol(TransferState* state) {
+bool should_switch_protocol(TransferState* state, int socket) {
     // Cambiar a UDP después de enviar el primer paquete TCP
-    if (state->current_protocol == PROTOCOL_TCP && state->packet_count == 1) {
-        printf("Iniciando cambio de protocolo TCP -> UDP\n");
-        return true;
+    if (state->current_protocol == PROTOCOL_TCP && state->bytes_sent >= state->total_size / 2) {
+        // Verificar estadísticas TCP usando TCP_INFO
+        struct tcp_info tcp_stats;
+        socklen_t tcp_info_len = sizeof(tcp_stats);
+        
+        if (getsockopt(socket, IPPROTO_TCP, TCP_INFO, &tcp_stats, &tcp_info_len) == 0) {
+            printf("Estadísticas TCP:\n");
+            printf("  - Retransmisiones totales: %u\n", tcp_stats.tcpi_total_retrans);
+            printf("  - Paquetes retransmitidos: %u\n", tcp_stats.tcpi_retrans);
+            printf("  - Estado de conexión: %u\n", tcp_stats.tcpi_state);
+            
+            // Si hubo retransmisiones, no cambiar a UDP
+            if (tcp_stats.tcpi_total_retrans > 0) {
+                printf("Detectadas %u retransmisiones - manteniéndose en TCP por confiabilidad\n", 
+                       tcp_stats.tcpi_total_retrans);
+                return false;
+            }
+            
+            printf("No se detectaron retransmisiones - procediendo con cambio TCP -> UDP\n");
+            return true;
+        } else {
+            printf("Error obteniendo TCP_INFO (errno: %d) - manteniéndose en TCP por seguridad\n", errno);
+            return false;
+        }
     }
     
     return false;
@@ -287,7 +309,7 @@ int client_with_handoff() {
     // Transferir archivo con handoff
     while (state.bytes_sent < state.total_size) {
         // Verificar si necesita cambio de protocolo
-        if (should_switch_protocol(&state)) {
+        if (should_switch_protocol(&state, socket)) {
             if (switch_protocol(&state, &socket) < 0) {
                 printf("Error en handoff\n");
                 close(socket);
@@ -314,6 +336,11 @@ int client_with_handoff() {
                state.bytes_sent, state.total_size, 
                (double)state.bytes_sent / state.total_size * 100,
                state.current_protocol == PROTOCOL_TCP ? "TCP" : "UDP");
+        
+        // Throttling para UDP para evitar saturar el servidor
+        if (state.current_protocol == PROTOCOL_UDP) {
+            usleep(100); // 0.1ms delay para UDP
+        }
     }
     
     printf("Transferencia completada exitosamente\n");
